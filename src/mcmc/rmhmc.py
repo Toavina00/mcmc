@@ -33,6 +33,23 @@ def sample(
     t_max: int,
     f_max: int
 ) -> Tuple[float, jax.Array]:
+    """
+    Sample from a given probability distribution using Riemannian Manifold Hamiltonian Monte Carlo
+
+    :Parameters
+        - key: jax random key
+        - prob: probability density which we are sampling from
+        - x_init: initial position
+        - n_iter: number of iterations
+        - eps: leapfrog step size
+        - t_max: leapfrog iteration
+        - f_max: leapfrog fixed point iteration
+    
+    :Returns
+        - rejection_rate: sampling rejection rate
+        - samples: samples obtained
+
+    """
 
     E  = lambda x: -jnp.log(prob(x))
     gE = jax.grad(E)
@@ -137,6 +154,23 @@ def sample_with_path(
     t_max: int,
     f_max: int
 ) -> Tuple[float, jax.Array]:
+    """
+    Sample from a given probability distribution using Riemannian Manifold Hamiltonian Monte Carlo and return the dynamics' path
+
+    :Parameters
+        - key: jax random key
+        - prob: probability density which we are sampling from
+        - x_init: initial position
+        - n_iter: number of iterations
+        - eps: leapfrog step size
+        - t_max: leapfrog iteration
+        - f_max: leapfrog fixed point iteration
+    
+    :Returns
+        - rejection_rate: sampling rejection rate
+        - path: dynamics' path
+
+    """
 
     E  = lambda x: -jnp.log(prob(x))
     gE = jax.grad(E)
