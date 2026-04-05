@@ -14,7 +14,7 @@ def ess(samples: jax.Array) -> float:
 
     samples -= samples.mean()
 
-    power_sp = jnp.square(jnp.fft.fft(samples))
+    power_sp = jnp.abs(jnp.fft.fft(samples)) ** 2
     autocorr = jnp.fft.ifft(power_sp)
 
     return len(samples) / autocorr.sum()
