@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 
+
 def ess(samples: jax.Array) -> float:
     """
     Compute the Effective Sample Size
@@ -15,6 +16,5 @@ def ess(samples: jax.Array) -> float:
     samples -= samples.mean()
 
     power_sp = jnp.abs(jnp.fft.fft(samples)) ** 2
-    autocorr = jnp.fft.ifft(power_sp)
 
-    return len(samples) / autocorr.sum()
+    return len(samples) / power_sp[0]
