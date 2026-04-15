@@ -7,13 +7,17 @@ requires-python = ">=3.12"
 dependencies = [
     "jax>=0.9.2",
     "jaxlib>=0.9.2",
-    "ruff>=0.15.10",
 ]
 authors = [{ name = "Toavina Leong", email = "toavina@aims.ac.za" }]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.10",
+]
 
 [project.urls]
 "Repository" = "https://github.com/Toavina00/mcmc"

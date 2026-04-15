@@ -34,18 +34,24 @@ def sample(
 
     @jax.jit
     def neg_log_prob(x):
+        """ Negative log-probability (potential energy) """
         return -jnp.log(prob(x))
 
     @jax.jit
     def kinetic_energy(p):
+        """ Kinetic energy of the Hamiltonian system """
         return (p.T @ p) / 2
 
+    # Gradient of the negative log-probability
     grad_nll = jax.grad(neg_log_prob)
 
     def leapfrog(carry, _):
         x, p = carry
+        # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)
+        # Full step for position
         x = x + eps * p
+        # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)
         return (x, p), (x, p)
 
@@ -53,19 +59,28 @@ def sample(
         _key, rej, x = carry
         _key, subkey0, subkey1 = jax.random.split(_key, 3)
 
+        # Sample initial momentum from standard normal distribution
         p = jax.random.normal(subkey0, x.shape)
+        # Compute initial Hamiltonian
         hamiltonian = kinetic_energy(p) + neg_log_prob(x)
 
+        # Run leapfrog integrator
         _, leap = jax.lax.scan(leapfrog, (x, p), None, tau)
 
         x_new = leap[0][-1]
         p_new = leap[1][-1]
 
+        # Compute new Hamiltonian at proposed state
         new_hamiltonian = kinetic_energy(p_new) + neg_log_prob(x_new)
         dH = new_hamiltonian - hamiltonian
+        
+        # Draw uniform random variable
         u = jax.random.uniform(subkey1)
 
+        # Accept-reject step (Metropolis-Hastings)
         condition = jnp.logical_or(dH < 0, u < jnp.exp(-dH))
+        
+        # Update rejection count and state
         new_rej = jax.lax.select(condition, rej, rej + 1)
         new_x = jax.lax.select(condition, x_new, x)
 
