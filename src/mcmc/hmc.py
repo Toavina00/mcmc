@@ -34,12 +34,12 @@ def sample(
 
     @jax.jit
     def neg_log_prob(x):
-        """ Negative log-probability (potential energy) """
+        """Negative log-probability (potential energy)"""
         return -jnp.log(prob(x))
 
     @jax.jit
     def kinetic_energy(p):
-        """ Kinetic energy of the Hamiltonian system """
+        """Kinetic energy of the Hamiltonian system"""
         return (p.T @ p) / 2
 
     # Gradient of the negative log-probability
@@ -73,13 +73,13 @@ def sample(
         # Compute new Hamiltonian at proposed state
         new_hamiltonian = kinetic_energy(p_new) + neg_log_prob(x_new)
         dH = new_hamiltonian - hamiltonian
-        
+
         # Draw uniform random variable
         u = jax.random.uniform(subkey1)
 
         # Accept-reject step (Metropolis-Hastings)
         condition = jnp.logical_or(dH < 0, u < jnp.exp(-dH))
-        
+
         # Update rejection count and state
         new_rej = jax.lax.select(condition, rej, rej + 1)
         new_x = jax.lax.select(condition, x_new, x)

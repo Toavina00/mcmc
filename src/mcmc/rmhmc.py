@@ -37,7 +37,7 @@ def sample(
 
     @jax.jit
     def neg_log_prob(x):
-        """ Negative log-probability (potential energy) """
+        """Negative log-probability (potential energy)"""
         return -jnp.log(prob(x))
 
     # Compute gradient, and Hessian of the negative log-probability
@@ -84,7 +84,7 @@ def sample(
     )
 
     def fp_p(carry, _):
-        """ Fixed point iteration step for momentum update """
+        """Fixed point iteration step for momentum update"""
         (
             x,
             p,
@@ -111,7 +111,7 @@ def sample(
         ), p_new
 
     def fp_x(carry, _):
-        """ Fixed point iteration step for position update """
+        """Fixed point iteration step for position update"""
         x, p, w, w_new, _, _, _, _, _ = carry
         x_new = x + 0.5 * eps * (w + w_new)
         metric, cholesky_metric, det_metric, jac_metric, metric_inv_dot_jac = (
@@ -132,7 +132,7 @@ def sample(
         ), x_new
 
     def leapfrog(carry, _):
-        """ Generalized leapfrog integration step """
+        """Generalized leapfrog integration step"""
         (
             x,
             p,
@@ -196,7 +196,7 @@ def sample(
             metric_inv_dot_jac,
         ) = carry
         x = fp_arr_x[-1]
-        
+
         # Final momentum explicit update (half step)
         _, grad_hamiltonian = __hamiltonian(
             x, p, cholesky_metric, det_metric, jac_metric, metric_inv_dot_jac

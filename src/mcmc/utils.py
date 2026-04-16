@@ -1,20 +1,101 @@
+from typing import Literal
+
 import jax
 import jax.numpy as jnp
 
 
-def ess(samples: jax.Array) -> float:
+def m_ess(
+    samples: jax.Array, method: Literal["periodigram" | "batchmeans"] = "periodigram"
+) -> float:
     """
-    Compute the Effective Sample Size
+    Compute the multivariate Effective Sample Size
 
     :Parameters
         - samples: samples from a monte carlo sampler
+        - method: `periodigram` or `batchmeans`
 
     :Returns
-        - ess: Effective Sample Size
+        - m_ess: multivariate Effective Sample Size
     """
 
-    samples -= samples.mean()
+    if samples.ndim != 1 and samples.ndim != 2:
+        raise ValueError("The chain should be 1D or 2D.")
 
-    power_sp = jnp.abs(jnp.fft.fft(samples)) ** 2
+    if samples.ndim == 1:
+        samples = samples.reshape(-1, 1)
 
-    return len(samples) / power_sp[0]
+    match method:
+        case "periodigram":
+            return __periodigram_mess(samples)
+
+        case "batchmeans":
+            return __batchmeans_mess(samples)
+
+        case _:
+            raise ValueError("Unknown method")
+
+
+@jax.jit
+def __periodigram_mess(samples: jax.Array) -> float:
+    """
+    Compute the multivariate Effective Sample Size using periodigram
+    """
+
+    n, d = samples.shape
+
+    # Compute covariance matrix
+    covar = jnp.cov(samples, rowvar=False)
+    det_covar = jnp.linalg.det(covar)
+
+    # Compute periodigram
+    samples_centered = samples - samples.mean(axis=0)
+    samples_fft = jnp.fft.fft(samples_centered, axis=0)
+    periodigram = jnp.einsum("mp,mk->mpk", samples_fft, samples_fft.conj()) / n
+
+    # Kernel smoothing (Bartlett window)
+    m = jnp.floor(jnp.sqrt(n)).astype(int)
+    weights = 1 - jnp.abs(jnp.arange(-m, m + 1)) / (m + 1)
+    weights = weights / weights.sum()
+    indices = jnp.arange(-m, m + 1) % n
+    psd_at_zero = jnp.sum(periodigram[indices] * weights[:, None, None], axis=0)
+
+    det_sigma = jnp.linalg.det(psd_at_zero.real)
+
+    return n * (det_covar / det_sigma) ** (1 / d)
+
+
+@jax.jit
+def __batchmeans_mess(samples: jax.Array) -> float:
+    """
+    Compute the multivariate Effective Sample Size using batch means
+
+    Reference:
+      Dootika Vats, James M Flegal, Galin L Jones,
+      Multivariate output analysis for Markov chain Monte Carlo,
+      Biometrika, Volume 106, Issue 2, June 2019, Pages 321-337,
+      https://doi.org/10.1093/biomet/asz002
+    """
+
+    n, p = samples.shape
+
+    # Compute covariance matrix
+    covar = jnp.cov(samples, rowvar=False)
+    det_covar = jnp.linalg.det(covar)
+
+    # Reshape to (num_batches, batch_size, p)
+    batch_size = jnp.floor(jnp.sqrt(n)).astype(int)
+    num_batches = n // batch_size
+    reshaped_samples = samples[: num_batches * batch_size].reshape(
+        num_batches, batch_size, p
+    )
+
+    # Calculate means of each batch
+    batch_means = jnp.mean(reshaped_samples, axis=1)
+    overall_mean = jnp.mean(samples, axis=0)
+
+    # Calculate Sigma: The variance of the batch means scaled by batch size
+    diff = batch_means - overall_mean
+    sigma_mat = (batch_size / (num_batches - 1)) * (diff.T @ diff)
+    det_sigma = jnp.linalg.det(sigma_mat)
+
+    return n * (det_covar / det_sigma) ** (1 / p)
