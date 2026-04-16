@@ -44,7 +44,7 @@ def __periodigram_mess(samples: jax.Array) -> float:
 
     # Compute covariance matrix
     covar = jnp.cov(samples, rowvar=False)
-    det_covar = jnp.linalg.det(covar)
+    det_covar = jnp.linalg.det(covar + 1e-10 * jnp.eye(d))
 
     # Compute periodigram
     samples_centered = samples - samples.mean(axis=0)
@@ -58,7 +58,7 @@ def __periodigram_mess(samples: jax.Array) -> float:
     indices = jnp.arange(-m, m + 1) % n
     psd_at_zero = jnp.sum(periodigram[indices] * weights[:, None, None], axis=0)
 
-    det_sigma = jnp.linalg.det(psd_at_zero.real)
+    det_sigma = jnp.linalg.det(psd_at_zero.real + 1e-10 * jnp.eye(d))
 
     return n * (det_covar / det_sigma) ** (1 / d)
 
@@ -78,7 +78,7 @@ def __batchmeans_mess(samples: jax.Array) -> float:
 
     # Compute covariance matrix
     covar = jnp.cov(samples, rowvar=False)
-    det_covar = jnp.linalg.det(covar)
+    det_covar = jnp.linalg.det(covar + 1e-10 * jnp.eye(p))
 
     # Reshape to (num_batches, batch_size, p)
     batch_size = jnp.floor(jnp.sqrt(n)).astype(int)
@@ -94,6 +94,6 @@ def __batchmeans_mess(samples: jax.Array) -> float:
     # Calculate Sigma: The variance of the batch means scaled by batch size
     diff = batch_means - overall_mean
     sigma_mat = (batch_size / (num_batches - 1)) * (diff.T @ diff)
-    det_sigma = jnp.linalg.det(sigma_mat)
+    det_sigma = jnp.linalg.det(sigma_mat + 1e-10 * jnp.eye(p))
 
     return n * (det_covar / det_sigma) ** (1 / p)
