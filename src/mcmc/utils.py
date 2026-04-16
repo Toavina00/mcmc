@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 
 def m_ess(
-    samples: jax.Array, method: Literal["periodigram" | "batchmeans"] = "periodigram"
+    samples: jax.Array, method: Literal["periodigram", "batchmeans"] = "periodigram"
 ) -> float:
     """
     Compute the multivariate Effective Sample Size
@@ -35,7 +35,6 @@ def m_ess(
             raise ValueError("Unknown method")
 
 
-@jax.jit
 def __periodigram_mess(samples: jax.Array) -> float:
     """
     Compute the multivariate Effective Sample Size using periodigram
@@ -64,7 +63,6 @@ def __periodigram_mess(samples: jax.Array) -> float:
     return n * (det_covar / det_sigma) ** (1 / d)
 
 
-@jax.jit
 def __batchmeans_mess(samples: jax.Array) -> float:
     """
     Compute the multivariate Effective Sample Size using batch means
