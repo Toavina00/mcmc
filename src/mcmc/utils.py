@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 
 def m_ess(
-    samples: jax.Array, method: Literal["spectral", "batchmeans"] = "spectral"
+    samples: jax.Array, method: Literal["spectral", "batchmeans"] = "spectral", **kwargs
 ) -> float:
     """
     Compute the multivariate Effective Sample Size
@@ -100,14 +100,14 @@ def __batchmeans_mess(samples: jax.Array) -> float:
 
 
 def ess(
-    samples: jax.Array, method: Literal["spectral", "batchmeans"] = "spectral"
+    samples: jax.Array, method: Literal["spectral", "batchmeans", "truncated"] = "truncated", **kwargs
 ) -> float:
     """
     Compute the component-wise/univariate Effective Sample Size
 
     :Parameters
         - samples: samples from a monte carlo sampler
-        - method: `spectral` or `batchmeans`
+        - method: `spectral`, `batchmeans` or `truncated`
 
     :Returns
         - ess: component-wise/univariate Effective Sample Size
@@ -125,6 +125,9 @@ def ess(
 
         case "batchmeans":
             return __batchmeans_ess(samples)
+
+        case "truncated":
+            return __truncated_ess(samples, **kwargs)
 
         case _:
             raise ValueError("Unknown method")
@@ -181,3 +184,31 @@ def __batchmeans_ess(samples: jax.Array) -> float:
     sigma = (batch_size / (num_batches - 1)) * jnp.sum(diff**2, axis=0)
 
     return n * var / sigma
+
+
+def __truncated_ess(samples: jax.Array, threshold: float = 0.1):
+    """
+    Compute the univariate Effective Sample Size using truncated sum of autocovariance
+    """
+
+    n, d = samples.shape
+
+    # Compute sample variance
+    var = jnp.var(samples, axis=0)
+
+    # Compute autocovariance
+    samples_centered = samples - samples.mean(axis=0)
+    samples_fft = jnp.fft.fft(samples_centered, axis=0)
+    power_spec = jnp.abs(samples_fft) ** 2 / n
+    autocov = jnp.fft.ifft(power_spec, axis=0).real
+
+    def trunc_autocov(carry, x):
+        mask = carry
+        mask *= x > threshold
+        return mask, mask * x
+    
+    # Sum the autocovariance up until the threshold
+    _, truncated_autocov = jax.lax.scan(trunc_autocov, jnp.ones(d), autocov)
+    ac_sum = truncated_autocov.sum(axis=0)
+
+    return n * var / ac_sum
