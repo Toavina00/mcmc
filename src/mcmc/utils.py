@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 def m_ess(
     samples: jax.Array, method: Literal["spectral", "batchmeans"] = "spectral", **kwargs
-) -> float:
+) -> jax.Array:
     """
     Compute the multivariate Effective Sample Size
 
@@ -35,7 +35,7 @@ def m_ess(
             raise ValueError("Unknown method")
 
 
-def __spectral_mess(samples: jax.Array) -> float:
+def __spectral_mess(samples: jax.Array) -> jax.Array:
     """
     Compute the multivariate Effective Sample Size using spectral variance
     """
@@ -48,14 +48,15 @@ def __spectral_mess(samples: jax.Array) -> float:
 
     # Compute spectral
     samples_centered = samples - samples.mean(axis=0)
-    samples_fft = jnp.fft.fft(samples_centered, axis=0)
+    samples_fft = jnp.fft.fft(samples_centered, n=2*n, axis=0)[:n]
     spectral_mat = jnp.einsum("mp,mk->mpk", samples_fft, samples_fft.conj()) / n
 
     # Kernel smoothing (Bartlett window)
     m = jnp.floor(jnp.sqrt(n)).astype(int)
-    weights = 1 - jnp.abs(jnp.arange(-m, m + 1)) / (m + 1)
+    k = jnp.arange(-m, m + 1)
+    weights = jnp.where(k == 0, 0.0, 1 - jnp.abs(k) / (m + 1))
     weights = weights / weights.sum()
-    indices = jnp.arange(-m, m + 1) % n
+    indices = k % n
     psd_at_zero = jnp.sum(spectral_mat[indices] * weights[:, None, None], axis=0)
 
     det_sigma = jnp.linalg.det(psd_at_zero.real)
@@ -63,7 +64,7 @@ def __spectral_mess(samples: jax.Array) -> float:
     return n * (det_covar / det_sigma) ** (1 / d)
 
 
-def __batchmeans_mess(samples: jax.Array) -> float:
+def __batchmeans_mess(samples: jax.Array) -> jax.Array:
     """
     Compute the multivariate Effective Sample Size using batch means
 
@@ -100,14 +101,14 @@ def __batchmeans_mess(samples: jax.Array) -> float:
 
 
 def ess(
-    samples: jax.Array, method: Literal["spectral", "batchmeans", "truncated"] = "truncated", **kwargs
-) -> float:
+    samples: jax.Array, method: Literal["spectral", "batchmeans", "geyer"] = "geyer", **kwargs
+) -> jax.Array:
     """
     Compute the component-wise/univariate Effective Sample Size
 
     :Parameters
         - samples: samples from a monte carlo sampler
-        - method: `spectral`, `batchmeans` or `truncated`
+        - method: `spectral`, `batchmeans` or `ips`
 
     :Returns
         - ess: component-wise/univariate Effective Sample Size
@@ -126,14 +127,14 @@ def ess(
         case "batchmeans":
             return __batchmeans_ess(samples)
 
-        case "truncated":
-            return __truncated_ess(samples, **kwargs)
+        case "geyer":
+            return __geyer_ess(samples)
 
         case _:
             raise ValueError("Unknown method")
 
 
-def __spectral_ess(samples: jax.Array) -> float:
+def __spectral_ess(samples: jax.Array) -> jax.Array:
     """
     Compute the univariate Effective Sample Size using spectral variance
     """
@@ -145,20 +146,21 @@ def __spectral_ess(samples: jax.Array) -> float:
 
     # Compute the auto-covariance sum
     samples_centered = samples - samples.mean(axis=0)
-    samples_fft = jnp.fft.fft(samples_centered, axis=0)
+    samples_fft = jnp.fft.fft(samples_centered, n=2*n, axis=0)[:n]
     power_spec = jnp.abs(samples_fft) ** 2 / n
 
     # Variance estimation smoothing (Bartlett window)
     m = jnp.floor(jnp.sqrt(n)).astype(int)
-    weights = 1 - jnp.abs(jnp.arange(-m, m + 1)) / (m + 1)
+    k = jnp.arange(-m, m + 1)
+    weights = jnp.where(k == 0, 0.0, 1 - jnp.abs(k) / (m + 1))
     weights = weights / weights.sum()
-    indices = jnp.arange(-m, m + 1) % n
+    indices = k % n
     psd_at_zero = jnp.sum(power_spec[indices] * weights[:, None], axis=0)
 
     return n * var / psd_at_zero
 
 
-def __batchmeans_ess(samples: jax.Array) -> float:
+def __batchmeans_ess(samples: jax.Array) -> jax.Array:
     """
     Compute the univariate Effective Sample Size using batch means
     """
@@ -186,29 +188,39 @@ def __batchmeans_ess(samples: jax.Array) -> float:
     return n * var / sigma
 
 
-def __truncated_ess(samples: jax.Array, threshold: float = 0.1):
+def __geyer_ess(samples: jax.Array) -> jax.Array:
     """
-    Compute the univariate Effective Sample Size using truncated sum of autocovariance
+    Compute the univariate Effective Sample Size using Geyer's initial
+    positive sequence (IPS) estimator.
+
+    Reference:
+        Geyer, C. J. (1992). Practical Markov chain Monte Carlo.
+        Statistical Science, 7(4), 473-483.
     """
 
     n, d = samples.shape
 
-    # Compute sample variance
-    var = jnp.var(samples, axis=0)
-
-    # Compute autocovariance
+    # Compute Linear autocovariance via FFT
     samples_centered = samples - samples.mean(axis=0)
-    samples_fft = jnp.fft.fft(samples_centered, axis=0)
-    power_spec = jnp.abs(samples_fft) ** 2 / n
-    autocov = jnp.fft.ifft(power_spec, axis=0).real
+    samples_fft = jnp.fft.fft(samples_centered, n=2*n, axis=0)
+    power_spec = jnp.abs(samples_fft) ** 2
+    autocov = jnp.fft.ifft(power_spec, axis=0).real[:n] / n
 
-    def trunc_autocov(carry, x):
-        mask = carry
-        mask *= x > threshold
+    # Normalize to autocorrelation
+    autocorr = autocov / autocov[0]
+
+    # Pair consecutive lags: Gamma_m = rho(2m) + rho(2m+1)
+    n_pairs = n // 2
+    gamma = autocorr[: 2 * n_pairs].reshape(n_pairs, 2, d).sum(axis=1)
+
+    def trunc_gamma(carry, x):
+        mask = carry * (x > 0)
         return mask, mask * x
-    
-    # Sum the autocovariance up until the threshold
-    _, truncated_autocov = jax.lax.scan(trunc_autocov, jnp.ones(d), autocov)
-    ac_sum = truncated_autocov.sum(axis=0)
 
-    return n * var / ac_sum
+    # Truncate at first non-positive pair sum (IPS)
+    _, truncated_gamma = jax.lax.scan(trunc_gamma, jnp.ones(d), gamma)
+
+    # IAT = -1 + 2 * sum_m Gamma_m
+    iat = -1.0 + 2.0 * truncated_gamma.sum(axis=0)
+
+    return n / iat
