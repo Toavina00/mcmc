@@ -5,14 +5,14 @@ import jax.numpy as jnp
 
 
 def m_ess(
-    samples: jax.Array, method: Literal["periodigram", "batchmeans"] = "periodigram"
+    samples: jax.Array, method: Literal["spectral", "batchmeans"] = "spectral"
 ) -> float:
     """
     Compute the multivariate Effective Sample Size
 
     :Parameters
         - samples: samples from a monte carlo sampler
-        - method: `periodigram` or `batchmeans`
+        - method: `spectral` or `batchmeans`
 
     :Returns
         - m_ess: multivariate Effective Sample Size
@@ -25,8 +25,8 @@ def m_ess(
         samples = samples.reshape(-1, 1)
 
     match method:
-        case "periodigram":
-            return __periodigram_mess(samples)
+        case "spectral":
+            return __spectral_mess(samples)
 
         case "batchmeans":
             return __batchmeans_mess(samples)
@@ -35,9 +35,9 @@ def m_ess(
             raise ValueError("Unknown method")
 
 
-def __periodigram_mess(samples: jax.Array) -> float:
+def __spectral_mess(samples: jax.Array) -> float:
     """
-    Compute the multivariate Effective Sample Size using periodigram
+    Compute the multivariate Effective Sample Size using spectral variance
     """
 
     n, d = samples.shape
@@ -46,17 +46,17 @@ def __periodigram_mess(samples: jax.Array) -> float:
     covar = jnp.cov(samples, rowvar=False)
     det_covar = jnp.linalg.det(covar)
 
-    # Compute periodigram
+    # Compute spectral
     samples_centered = samples - samples.mean(axis=0)
     samples_fft = jnp.fft.fft(samples_centered, axis=0)
-    periodigram = jnp.einsum("mp,mk->mpk", samples_fft, samples_fft.conj()) / n
+    spectral_mat = jnp.einsum("mp,mk->mpk", samples_fft, samples_fft.conj()) / n
 
     # Kernel smoothing (Bartlett window)
     m = jnp.floor(jnp.sqrt(n)).astype(int)
     weights = 1 - jnp.abs(jnp.arange(-m, m + 1)) / (m + 1)
     weights = weights / weights.sum()
     indices = jnp.arange(-m, m + 1) % n
-    psd_at_zero = jnp.sum(periodigram[indices] * weights[:, None, None], axis=0)
+    psd_at_zero = jnp.sum(spectral_mat[indices] * weights[:, None, None], axis=0)
 
     det_sigma = jnp.linalg.det(psd_at_zero.real)
 
@@ -100,14 +100,14 @@ def __batchmeans_mess(samples: jax.Array) -> float:
 
 
 def ess(
-    samples: jax.Array, method: Literal["periodigram", "batchmeans"] = "periodigram"
+    samples: jax.Array, method: Literal["spectral", "batchmeans"] = "spectral"
 ) -> float:
     """
     Compute the component-wise/univariate Effective Sample Size
 
     :Parameters
         - samples: samples from a monte carlo sampler
-        - method: `periodigram` or `batchmeans`
+        - method: `spectral` or `batchmeans`
 
     :Returns
         - ess: component-wise/univariate Effective Sample Size
@@ -120,8 +120,8 @@ def ess(
         samples = samples.reshape(-1, 1)
 
     match method:
-        case "periodigram":
-            return __periodigram_ess(samples)
+        case "spectral":
+            return __spectral_ess(samples)
 
         case "batchmeans":
             return __batchmeans_ess(samples)
@@ -130,9 +130,9 @@ def ess(
             raise ValueError("Unknown method")
 
 
-def __periodigram_ess(samples: jax.Array) -> float:
+def __spectral_ess(samples: jax.Array) -> float:
     """
-    Compute the univariate Effective Sample Size using periodigram
+    Compute the univariate Effective Sample Size using spectral variance
     """
 
     n, d = samples.shape
