@@ -213,12 +213,10 @@ def __geyer_ess(samples: jax.Array) -> jax.Array:
     n_pairs = n // 2
     gamma = autocorr[: 2 * n_pairs].reshape(n_pairs, 2, d).sum(axis=1)
 
-    def trunc_gamma(carry, x):
-        mask = carry * (x > 0)
-        return mask, mask * x
-
-    # Truncate at first non-positive pair sum (IPS)
-    _, truncated_gamma = jax.lax.scan(trunc_gamma, jnp.ones(d), gamma)
+    # Truncate gamma
+    is_positive = gamma > 0
+    mask = jnp.cumprod(is_positive.astype(jnp.int32), axis=0)
+    truncated_gamma = gamma * mask
 
     # IAT = -1 + 2 * sum_m Gamma_m
     iat = -1.0 + 2.0 * truncated_gamma.sum(axis=0)
