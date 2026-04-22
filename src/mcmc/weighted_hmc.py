@@ -46,14 +46,13 @@ def sample(
 
     # Gradient of the negative log-probability
     grad_nll = jax.grad(neg_log_prob)
-    grad_kinetic = jax.grad(kinetic_energy)
 
     def leapfrog(carry, _):
         x, p = carry
         # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)
         # Full step for position
-        x = x + eps * grad_kinetic(p)
+        x = x + eps * weight_matrix @ p
         # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)
         return (x, p), (x, p)
