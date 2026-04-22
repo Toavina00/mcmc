@@ -8,7 +8,7 @@ def sample(
     key: jax.Array,
     log_prob: Callable[[jax.Array], float],
     x_init: jax.Array,
-    mass_matrix: jax.Array,
+    weight_matrix: jax.Array,
     n_iter: int,
     eps: float,
     tau: int,
@@ -21,6 +21,7 @@ def sample(
         - key: jax random key
         - log_prob: log-probability density which we are sampling from
         - x_init: initial position
+        - weight_matrix: inverse of the covariance matrix of the momentum `p`
         - n_iter: number of iterations
         - eps: leapfrog step size
         - tau: leapfrog iterations
@@ -41,8 +42,7 @@ def sample(
     @jax.jit
     def kinetic_energy(p: jax.Array) -> float:
         """Kinetic energy of the Hamiltonian system"""
-        g = jnp.linalg.solve(mass_matrix, p)
-        return (p.T @ g) / 2
+        return (p.T @ weight_matrix @ p) / 2
 
     # Gradient of the negative log-probability
     grad_nll = jax.grad(neg_log_prob)
