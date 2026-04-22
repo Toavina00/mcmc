@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 def sample(
     key: jax.Array,
-    prob: Callable[[jax.Array], float],
+    log_prob: Callable[[jax.Array], float],
     x_init: jax.Array,
     n_iter: int,
     eps: float,
@@ -18,7 +18,7 @@ def sample(
 
     :Parameters
         - key: jax random key
-        - prob: probability density which we are sampling from
+        - log_prob: log-probability density which we are sampling from
         - x_init: initial position
         - n_iter: number of iterations
         - eps: leapfrog step size
@@ -35,7 +35,7 @@ def sample(
     @jax.jit
     def neg_log_prob(x):
         """Negative log-probability (potential energy)"""
-        return -jnp.log(prob(x))
+        return -log_prob(x)
 
     @jax.jit
     def kinetic_energy(p):
@@ -77,7 +77,7 @@ def sample(
         # Draw uniform random variable
         u = jax.random.uniform(subkey1)
 
-        # Accept-reject step (Metropolis-Hastings)
+        # Accept-reject step
         condition = jnp.logical_or(dH < 0, u < jnp.exp(-dH))
 
         # Update rejection count and state

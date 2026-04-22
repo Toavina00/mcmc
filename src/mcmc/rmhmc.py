@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 def sample(
     key: jax.Array,
-    prob: Callable[[jax.Array], float],
+    log_prob: Callable[[jax.Array], float],
     x_init: jax.Array,
     n_iter: int,
     eps: float,
@@ -19,7 +19,7 @@ def sample(
 
     :Parameters
         - key: jax random key
-        - prob: probability density which we are sampling from
+        - log_prob: log-probability density which we are sampling from
         - x_init: initial position
         - n_iter: number of iterations
         - eps: leapfrog step size
@@ -38,7 +38,7 @@ def sample(
     @jax.jit
     def neg_log_prob(x):
         """Negative log-probability (potential energy)"""
-        return -jnp.log(prob(x))
+        return -log_prob(x)
 
     # Compute gradient, and Hessian of the negative log-probability
     grad_nll = jax.grad(neg_log_prob)
@@ -270,6 +270,7 @@ def sample(
             new_metric_inv_dot_jac,
         ) = leap_carry
 
+        # Accept-reject step
         u = jax.random.uniform(subkey1)
         condition = u < jnp.exp(hamiltonian - new_hamiltonian)
 

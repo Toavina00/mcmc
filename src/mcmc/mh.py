@@ -1,11 +1,12 @@
 import jax
+import jax.numpy as jnp
 
 from typing import Callable, Tuple
 
 
 def sample(
     key: jax.Array,
-    prob: Callable[[jax.Array], float],
+    log_prob: Callable[[jax.Array], float],
     x_init: jax.Array,
     n_iter: int,
     sigma: float,
@@ -15,7 +16,7 @@ def sample(
 
     :Parameters
         - key: jax random key
-        - prob: probability density which we are sampling from
+        - log_prob: log-probability density which we are sampling from
         - x_init: initial position
         - n_iter: number of iterations
         - sigma: stdev of the gaussian proposal density
@@ -36,7 +37,7 @@ def sample(
         u = jax.random.uniform(subkey1)
 
         # Accept-reject condition
-        condition = u <= (prob(x_new) / prob(x))
+        condition = u <= jnp.exp(log_prob(x_new) - log_prob(x))
 
         # Update state and rejection count based on the condition
         new_x = jax.lax.select(condition, x_new, x)
