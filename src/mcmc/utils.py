@@ -1,5 +1,3 @@
-from typing import Literal
-
 import jax
 import jax.numpy as jnp
 
@@ -26,7 +24,6 @@ def m_ess(samples: jax.Array) -> jax.Array:
 
     if samples.ndim == 1:
         samples = samples.reshape(-1, 1)
-
 
     n, d = samples.shape
 
@@ -55,7 +52,6 @@ def m_ess(samples: jax.Array) -> jax.Array:
     return n * jnp.exp((logdet_c - logdet_s) / d)
 
 
-
 def ess(samples: jax.Array) -> jax.Array:
     """
     Compute the component-wise/univariate Effective Sample Size using Geyer's initial
@@ -82,7 +78,7 @@ def ess(samples: jax.Array) -> jax.Array:
 
     # Compute Linear autocovariance via FFT
     samples_centered = samples - samples.mean(axis=0)
-    samples_fft = jnp.fft.rfft(samples_centered, n=2*n, axis=0)
+    samples_fft = jnp.fft.rfft(samples_centered, n=2 * n, axis=0)
     power_spec = jnp.abs(samples_fft) ** 2
     autocov = jnp.fft.irfft(power_spec, axis=0)[:n]
 
@@ -97,10 +93,10 @@ def ess(samples: jax.Array) -> jax.Array:
     mask = gamma > 0
     mask = jnp.cumprod(mask.astype(jnp.int32), axis=0)
     gamma_truncated = gamma * mask
-    
+
     # Enforce monotonicity
     gamma_monotone = jax.lax.associative_scan(jnp.minimum, gamma_truncated)
-    
+
     # Compute tau_int
     tau_int = -1.0 + 2.0 * gamma_monotone.sum(axis=0)
 
