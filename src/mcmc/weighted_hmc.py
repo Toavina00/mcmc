@@ -8,6 +8,7 @@ def sample(
     key: jax.Array,
     log_prob: Callable[[jax.Array], float],
     x_init: jax.Array,
+    mass_matrix: jax.Array,
     n_iter: int,
     eps: float,
     tau: int,
@@ -38,9 +39,10 @@ def sample(
         return -log_prob(x)
 
     @jax.jit
-    def kinetic_energy(p: jax.Array) -> jax.Array:
+    def kinetic_energy(p: jax.Array) -> float:
         """Kinetic energy of the Hamiltonian system"""
-        return (p.T @ p) / 2
+        g = jnp.linalg.solve(mass_matrix, p)
+        return (p.T @ g) / 2
 
     # Gradient of the negative log-probability
     grad_nll = jax.grad(neg_log_prob)

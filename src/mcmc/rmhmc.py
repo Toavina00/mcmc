@@ -36,7 +36,7 @@ def sample(
     """
 
     @jax.jit
-    def neg_log_prob(x):
+    def neg_log_prob(x: jax.Array) -> float:
         """Negative log-probability (potential energy)"""
         return -log_prob(x)
 
@@ -47,7 +47,9 @@ def sample(
     jac_hessian_nll = jax.jacfwd(hessian_nll)
 
     @jax.jit
-    def __riemann_metric(x):
+    def __riemann_metric(
+        x: jax.Array,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
         # Compute the Riemannian metric tensor G(x) (using the Hessian)
         metric = hessian_nll(x)
         # Cholesky decomposition of G(x)
@@ -63,8 +65,13 @@ def sample(
 
     @jax.jit
     def __hamiltonian(
-        x, p, cholesky_metric, det_metric, jac_metric, metric_inv_dot_jac
-    ):
+        x: jax.Array,
+        p: jax.Array,
+        cholesky_metric: jax.Array,
+        det_metric: jax.Array,
+        jac_metric: jax.Array,
+        metric_inv_dot_jac: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
         # Compute kinetic energy K = 1/2 p^T G(x)^{-1} p + 1/2 log|G(x)|
         w = jnp.linalg.solve(cholesky_metric, p)
         w = jnp.linalg.solve(cholesky_metric.T, w)
