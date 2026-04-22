@@ -40,7 +40,7 @@ def sample(
     @jax.jit
     def kinetic_energy(p: jax.Array) -> jax.Array:
         """Kinetic energy of the Hamiltonian system"""
-        return (p.T @ p) / 2
+        return (p.T @ p) * 0.5
 
     # Gradient of the negative log-probability
     grad_nll = jax.grad(neg_log_prob)
