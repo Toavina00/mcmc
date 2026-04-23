@@ -8,7 +8,7 @@ def sample(
     key: jax.Array,
     log_prob: Callable[[jax.Array], float],
     x_init: jax.Array,
-    weight_matrix: jax.Array,
+    mass_matrix: jax.Array,
     n_iter: int,
     eps: float,
     tau: int,
@@ -21,7 +21,7 @@ def sample(
         - key: jax random key
         - log_prob: log-probability density which we are sampling from
         - x_init: initial position
-        - weight_matrix: inverse of the covariance matrix of the momentum `p`
+        - mass_matrix: the covariance matrix of the momentum `p`
         - n_iter: number of iterations
         - eps: leapfrog step size
         - tau: leapfrog iterations
@@ -34,6 +34,8 @@ def sample(
                    or full leapfrog path (shape: [n_iter * tau, dim]) if return_path=True
     """
 
+    cov_cholesky = jnp.linalg.cholesky(mass_matrix)
+
     @jax.jit
     def neg_log_prob(x: jax.Array) -> float:
         """Negative log-probability (potential energy)"""
@@ -42,7 +44,9 @@ def sample(
     @jax.jit
     def kinetic_energy(p: jax.Array) -> float:
         """Kinetic energy of the Hamiltonian system"""
-        return (p.T @ weight_matrix @ p) * 0.5
+        g = jnp.linalg.solve(cov_cholesky, p)
+        g = jnp.linalg.solve(cov_cholesky.T, g)
+        return (p.T @ g) * 0.5
 
     # Gradient of the negative log-probability
     grad_nll = jax.grad(neg_log_prob)
@@ -52,7 +56,9 @@ def sample(
         # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)
         # Full step for position
-        x = x + eps * weight_matrix @ p
+        g = jnp.linalg.solve(cov_cholesky, p)
+        g = jnp.linalg.solve(cov_cholesky.T, g)
+        x = x + eps * g
         # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)
         return (x, p), (x, p)
@@ -61,8 +67,10 @@ def sample(
         _key, rej, x = carry
         _key, subkey0, subkey1 = jax.random.split(_key, 3)
 
-        # Sample initial momentum from standard normal distribution
+        # Sample initial momentum from N(0, M)
         p = jax.random.normal(subkey0, x.shape)
+        p = cov_cholesky @ p
+
         # Compute initial Hamiltonian
         hamiltonian = kinetic_energy(p) + neg_log_prob(x)
 
