@@ -53,7 +53,7 @@ def sample(
         # Compute the Riemannian metric tensor G(x) (using the Hessian)
         metric = hessian_nll(x)
         # Cholesky decomposition of G(x)
-        cholesky_metric = jnp.linalg.cholesky(metric)
+        cholesky_metric = jnp.linalg.cholesky(metric + 1e-8 * jnp.eye(metric.shape[0]))
         # Determinant of G(x)
         det_metric = jnp.square(jnp.prod(jnp.diag(cholesky_metric)))
         # Jacobian of G(x)
