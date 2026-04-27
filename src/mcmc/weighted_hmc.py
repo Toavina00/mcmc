@@ -34,7 +34,9 @@ def sample(
                    or full leapfrog path (shape: [n_iter * tau, dim]) if return_path=True
     """
 
-    cov_cholesky = jnp.linalg.cholesky(mass_matrix + 1e-8 * jnp.eye(mass_matrix.shape[0]))
+    cov_cholesky = jnp.linalg.cholesky(
+        mass_matrix + 1e-8 * jnp.eye(mass_matrix.shape[0])
+    )
 
     @jax.jit
     def neg_log_prob(x: jax.Array) -> float:
