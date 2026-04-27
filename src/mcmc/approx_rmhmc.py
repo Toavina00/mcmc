@@ -179,7 +179,7 @@ def sample(
         n_iter,
     )
 
-    _, rej, _, _, _, _, _, _ = carry
+    _, rej, _ = carry
     rejection_rate = rej / n_iter
 
     if return_path:
