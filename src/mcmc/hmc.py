@@ -11,6 +11,7 @@ def sample(
     n_iter: int,
     eps: float,
     tau: int,
+    mass_matrix: jax.Array | None = None,
     return_path: bool = False,
 ) -> Tuple[float, jax.Array]:
     """
@@ -23,7 +24,8 @@ def sample(
         - n_iter: number of iterations
         - eps: leapfrog step size
         - tau: leapfrog iterations
-        - return_path: if True, return the full leapfrog dynamics path instead
+        - mass_matrix: the covariance matrix of the momentum `p`, set to the identity if `None`
+        - return_path: if `True, return the full leapfrog dynamics path instead
                        of just the accepted samples
 
     :Returns
@@ -32,15 +34,28 @@ def sample(
                    or full leapfrog path (shape: [n_iter * tau, dim]) if return_path=True
     """
 
+    covariance, cov_cholesky = None, None
+
+    if mass_matrix is not None:
+        if mass_matrix.ndim != 2:
+            raise ValueError("Mass matrix should be a 2D array")
+
+        if mass_matrix.shape[0] != mass_matrix.shape[1]:
+            raise ValueError("Mass matrix should be a square matrix")
+
+        covariance = mass_matrix + 1e-8 * jnp.eye(mass_matrix.shape[0])
+        cov_cholesky = jnp.linalg.cholesky(covariance)
+
     @jax.jit
     def neg_log_prob(x: jax.Array) -> float:
         """Negative log-probability (potential energy)"""
         return -log_prob(x)
 
     @jax.jit
-    def kinetic_energy(p: jax.Array) -> jax.Array:
+    def kinetic_energy(p: jax.Array) -> float:
         """Kinetic energy of the Hamiltonian system"""
-        return (p.T @ p) * 0.5
+        g = p if mass_matrix is None else jnp.linalg.solve(covariance, p)
+        return (p.T @ g) * 0.5
 
     # Gradient of the negative log-probability
     grad_nll = jax.grad(neg_log_prob)
@@ -50,7 +65,8 @@ def sample(
         # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)
         # Full step for position
-        x = x + eps * p
+        g = p if mass_matrix is None else jnp.linalg.solve(covariance, p)
+        x = x + eps * g
         # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)
         return (x, p), (x, p)
@@ -59,8 +75,10 @@ def sample(
         _key, rej, x = carry
         _key, subkey0, subkey1 = jax.random.split(_key, 3)
 
-        # Sample initial momentum from standard normal distribution
+        # Sample initial momentum from N(0, M)
         p = jax.random.normal(subkey0, x.shape)
+        p = p if mass_matrix is None else cov_cholesky @ p
+
         # Compute initial Hamiltonian
         hamiltonian = kinetic_energy(p) + neg_log_prob(x)
 
