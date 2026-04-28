@@ -67,42 +67,46 @@ def sample(
         """Compute the Hamiltonian and its gradient with respect to position x"""
 
         grad_val = grad_nll(x)
-        jac_val = jax.jacfwd(grad_nll)(x)
+        jac_val  = jax.jacfwd(grad_nll)(x)
 
-        diag_metric = grad_val**2 + 1e-8
-        jac_metric = 2 * jnp.einsum("i,jm->mij", grad_val, jac_val)
-        metric_inv_dot_jac = jac_metric / diag_metric
+        diag_metric = jnp.square(grad_val) + 1e-8
+        jac_metric = 2 * jnp.einsum('ij,i,im->mij', jnp.eye(x.shape[0]), grad_val, jac_val)
+        jac_det_metric = jnp.einsum('mij,i->mij', jac_metric, 1/diag_metric)
+        log_det_metric = jnp.sum(jnp.log(diag_metric)) 
+
         w = p / diag_metric
 
         # Total Hamiltonian H = 1/2 p^T G^{-1}(x) p + 1/2 log|G(x)| + U(x)
         hamiltonian = (
-            0.5 * p.T @ w + 0.5 * jnp.sum(jnp.log(diag_metric)) + neg_log_prob(x)
+            0.5 * p.T @ w
+            + 0.5 * log_det_metric
+            + neg_log_prob(x)
         )
 
         # Partial derivative of the Hamiltonian w.r.t position x
         grad_hamiltonian = (
-            grad_nll(x)
+            grad_val
             + 0.5 * jnp.einsum("ijk,j,k->i", jac_metric, w, w)
-            - 0.5 * jnp.einsum("ijj", metric_inv_dot_jac)
+            - 0.5 * jnp.einsum("ijj", jac_det_metric)
         )
 
         return hamiltonian, grad_hamiltonian
 
     def fp_p(carry, _):
         """Fixed point iteration step for momentum update"""
-        x, p = carry
-        _, grad_hamiltonian = __hamiltonian(x, p)
-        p_new = p - 0.5 * eps * grad_hamiltonian
+        x, p0, p = carry
+        _, grad_H = __hamiltonian(x, p)
+        p_new = p0 - 0.5 * eps * grad_H
 
-        return (x, p), p_new
+        return (x, p0, p_new), p_new
 
     def fp_x(carry, _):
         """Fixed point iteration step for position update"""
-        x, p, w, w_new = carry
-        x_new = x + 0.5 * eps * (w + w_new)
+        x0, p, w0, w = carry
+        x_new = x0 + 0.5 * eps * (w0 + w)
         w_new = inv_metric_op(x_new, p)
-
-        return (x, p, w, w_new), x_new
+        
+        return (x0, p, w0, w_new), x_new
 
     def leapfrog(carry, _):
         """Generalized leapfrog integration step"""
@@ -111,7 +115,7 @@ def sample(
         # Update momentum implicitly (half step)
         _, fp_arr_p = jax.lax.scan(
             fp_p,
-            (x, p),
+            (x, p, p),
             None,
             f_max,
         )
@@ -130,7 +134,7 @@ def sample(
         # Final momentum explicit update (half step)
         _, grad_hamiltonian = __hamiltonian(x, p)
         p = p - 0.5 * eps * grad_hamiltonian
-        hamiltonian, grad_hamiltonian = __hamiltonian(x, p)
+        hamiltonian, _ = __hamiltonian(x, p)
 
         return (x, p, hamiltonian), x
 
