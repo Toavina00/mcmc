@@ -81,8 +81,8 @@ def sample(
         # Partial derivative of the Hamiltonian w.r.t position x
         grad_hamiltonian = (
             grad_nll(x)
-            + 0.5 * jnp.einsum("ijk,j,k->i", jac_metric, w, w)
-            - 0.5 * jnp.einsum("ijj", metric_inv_dot_jac)
+            - 0.5 * jnp.einsum("ijk,j,k->i", jac_metric, w, w)
+            + 0.5 * jnp.einsum("ijj", metric_inv_dot_jac)
         )
         return hamiltonian, grad_hamiltonian
 
