@@ -47,6 +47,12 @@ def sample(
     jac_hessian_nll = jax.jacfwd(hessian_nll)
 
     @jax.jit
+    def cholesky_solve(lower_cholesky: jax.Array, x: jax.Array) -> jax.Array:
+        out = jax.scipy.linalg.solve_triangular(lower_cholesky, x, lower=True)
+        out = jax.scipy.linalg.solve_triangular(lower_cholesky, out, lower=True, trans='T')
+        return out
+
+    @jax.jit
     def __riemann_metric(
         x: jax.Array,
     ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
@@ -59,8 +65,7 @@ def sample(
         # Jacobian of G(x)
         jac_metric = jac_hessian_nll(x)
         # Jacobian of |G(x)|
-        jac_det_metric = jnp.linalg.solve(cholesky_metric, jac_metric)
-        jac_det_metric = jnp.linalg.solve(cholesky_metric.T, jac_det_metric)
+        jac_det_metric = cholesky_solve(cholesky_metric, jac_metric)
         jac_det_metric = jnp.einsum("ijj", jac_det_metric)
         return metric, cholesky_metric, det_metric, jac_metric, jac_det_metric
 
@@ -74,8 +79,7 @@ def sample(
         jac_det_metric: jax.Array,
     ) -> tuple[jax.Array, jax.Array]:
         # Compute kinetic energy K = 1/2 p^T G(x)^{-1} p + 1/2 log|G(x)|
-        w = jnp.linalg.solve(cholesky_metric, p)
-        w = jnp.linalg.solve(cholesky_metric.T, w)
+        w = cholesky_solve(cholesky_metric, p)
         K = 0.5 * p.T @ w + 0.5 * jnp.log(det_metric)
         # Total Hamiltonian H = K + U
         hamiltonian = K + neg_log_prob(x)
@@ -125,8 +129,7 @@ def sample(
         metric, cholesky_metric, det_metric, jac_metric, jac_det_metric = (
             __riemann_metric(x_new)
         )
-        w_new = jnp.linalg.solve(cholesky_metric, p)
-        w_new = jnp.linalg.solve(cholesky_metric.T, w_new)
+        w_new = cholesky_solve(cholesky_metric, p)
         return (
             x,
             p,
@@ -171,8 +174,7 @@ def sample(
         )
 
         p = fp_arr_p[-1]
-        w = jnp.linalg.solve(cholesky_metric, p)
-        w = jnp.linalg.solve(cholesky_metric.T, w)
+        w = cholesky_solve(cholesky_metric, p)
 
         # Update position implicitly (full step)
         carry, fp_arr_x = jax.lax.scan(
