@@ -12,6 +12,7 @@ def sample(
     eps: float,
     tau: int,
     mass_matrix: jax.Array | None = None,
+    tk_reg: float = 1e-8,
     return_path: bool = False,
 ) -> Tuple[float, jax.Array]:
     """
@@ -25,6 +26,7 @@ def sample(
         - eps: leapfrog step size
         - tau: leapfrog iterations
         - mass_matrix: the covariance matrix of the momentum `p`, set to the identity if `None`
+        - tk_reg: Tikhonov regularization coefficient for stability
         - return_path: if `True, return the full leapfrog dynamics path instead
                        of just the accepted samples
 
@@ -43,7 +45,7 @@ def sample(
         if mass_matrix.shape[0] != mass_matrix.shape[1]:
             raise ValueError("Mass matrix should be a square matrix")
 
-        covariance = mass_matrix + 1e-8 * jnp.eye(mass_matrix.shape[0])
+        covariance = mass_matrix + tk_reg * jnp.eye(mass_matrix.shape[0])
         cov_cholesky = jnp.linalg.cholesky(covariance)
 
     @jax.jit
@@ -52,7 +54,7 @@ def sample(
         return -log_prob(x)
 
     @jax.jit
-    def kinetic_energy(p: jax.Array) -> float:
+    def kinetic_energy(p: jax.Array) -> jax.Array:
         """Kinetic energy of the Hamiltonian system"""
         g = p if mass_matrix is None else jnp.linalg.solve(covariance, p)
         return (p.T @ g) * 0.5
@@ -77,7 +79,7 @@ def sample(
 
         # Sample initial momentum from N(0, M)
         p = jax.random.normal(subkey0, x.shape)
-        p = p if mass_matrix is None else cov_cholesky @ p
+        p = p if cov_cholesky is None else cov_cholesky @ p
 
         # Compute initial Hamiltonian
         hamiltonian = kinetic_energy(p) + neg_log_prob(x)

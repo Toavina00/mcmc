@@ -12,6 +12,7 @@ def sample(
     eps: float,
     t_max: int,
     f_max: int,
+    tk_reg: float = 1e-8,
     return_path: bool = False,
 ) -> Tuple[float, jax.Array]:
     """
@@ -25,6 +26,7 @@ def sample(
         - eps: leapfrog step size
         - t_max: leapfrog iteration
         - f_max: leapfrog fixed point iteration
+        - tk_reg: Tikhonov regularization coefficient for stability
         - return_path: if True, return the full leapfrog dynamics path instead
                        of just the accepted samples
 
@@ -59,7 +61,7 @@ def sample(
         # Compute the Riemannian metric tensor G(x) (using the Hessian)
         metric = hessian_nll(x)
         # Cholesky decomposition of G(x)
-        cholesky_metric = jnp.linalg.cholesky(metric + 1e-8 * jnp.eye(metric.shape[0]))
+        cholesky_metric = jnp.linalg.cholesky(metric + tk_reg * jnp.eye(metric.shape[0]))
         # Determinant of G(x)
         det_metric = jnp.square(jnp.prod(jnp.diag(cholesky_metric)))
         # Jacobian of G(x)
