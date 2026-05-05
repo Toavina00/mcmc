@@ -14,7 +14,7 @@ def sample(
     f_max: int,
     tk_reg: float = 1e-8,
     return_path: bool = False,
-) -> Tuple[float, jax.Array]:
+) -> Tuple[float | jax.Array, jax.Array]:
     """
     Sample from a given probability distribution using Riemannian Manifold Hamiltonian Monte Carlo
 
