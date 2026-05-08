@@ -67,8 +67,8 @@ def sample(
         # Jacobian of G(x)
         jac_metric = jac_hessian_nll(x)
         # Jacobian of |G(x)|
-        jac_det_metric = cholesky_solve(cholesky_metric, jac_metric)
-        jac_det_metric = jnp.einsum("ijj", jac_det_metric)
+        jac_det_metric = jax.vmap(lambda b: cholesky_solve(cholesky_metric, b), in_axes=2)(jac_metric)
+        jac_det_metric = jnp.einsum("jji", jac_det_metric)
         return metric, cholesky_metric, det_metric, jac_metric, jac_det_metric
 
     @jax.jit
