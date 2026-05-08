@@ -51,7 +51,9 @@ def sample(
     @jax.jit
     def cholesky_solve(lower_cholesky: jax.Array, x: jax.Array) -> jax.Array:
         out = jax.scipy.linalg.solve_triangular(lower_cholesky, x, lower=True)
-        out = jax.scipy.linalg.solve_triangular(lower_cholesky, out, lower=True, trans='T')
+        out = jax.scipy.linalg.solve_triangular(
+            lower_cholesky, out, lower=True, trans="T"
+        )
         return out
 
     @jax.jit
@@ -61,13 +63,17 @@ def sample(
         # Compute the Riemannian metric tensor G(x) (using the Hessian)
         metric = hessian_nll(x)
         # Cholesky decomposition of G(x)
-        cholesky_metric = jnp.linalg.cholesky(metric + tk_reg * jnp.eye(metric.shape[0]))
+        cholesky_metric = jnp.linalg.cholesky(
+            metric + tk_reg * jnp.eye(metric.shape[0])
+        )
         # Determinant of G(x)
         det_metric = jnp.square(jnp.prod(jnp.diag(cholesky_metric)))
         # Jacobian of G(x)
         jac_metric = jac_hessian_nll(x)
         # Jacobian of |G(x)|
-        jac_det_metric = jax.vmap(lambda b: cholesky_solve(cholesky_metric, b), in_axes=2)(jac_metric)
+        jac_det_metric = jax.vmap(
+            lambda b: cholesky_solve(cholesky_metric, b), in_axes=2
+        )(jac_metric)
         jac_det_metric = jnp.einsum("jji", jac_det_metric)
         return metric, cholesky_metric, det_metric, jac_metric, jac_det_metric
 
@@ -93,13 +99,14 @@ def sample(
         )
         return hamiltonian, grad_hamiltonian
 
-    metric, cholesky_metric, det_metric, jac_metric, jac_det_metric = (
-        __riemann_metric(x_init)
+    metric, cholesky_metric, det_metric, jac_metric, jac_det_metric = __riemann_metric(
+        x_init
     )
 
-    def fp_p(carry, _):
+    def fp_p(_, val):
         """Fixed point iteration step for momentum update"""
         (
+            _,
             x,
             p,
             grad_hamiltonian,
@@ -108,12 +115,13 @@ def sample(
             det_metric,
             jac_metric,
             jac_det_metric,
-        ) = carry
+        ) = val
         p_new = p - 0.5 * eps * grad_hamiltonian
         _, grad_hamiltonian = __hamiltonian(
             x, p_new, cholesky_metric, det_metric, jac_metric, jac_det_metric
         )
         return (
+            p_new,
             x,
             p,
             grad_hamiltonian,
@@ -122,17 +130,18 @@ def sample(
             det_metric,
             jac_metric,
             jac_det_metric,
-        ), p_new
+        )
 
-    def fp_x(carry, _):
+    def fp_x(_, val):
         """Fixed point iteration step for position update"""
-        x, p, w, w_new, _, _, _, _, _ = carry
+        _, x, p, w, w_new, _, _, _, _, _ = val
         x_new = x + 0.5 * eps * (w + w_new)
         metric, cholesky_metric, det_metric, jac_metric, jac_det_metric = (
             __riemann_metric(x_new)
         )
         w_new = cholesky_solve(cholesky_metric, p)
         return (
+            x_new,
             x,
             p,
             w,
@@ -142,7 +151,7 @@ def sample(
             det_metric,
             jac_metric,
             jac_det_metric,
-        ), x_new
+        )
 
     def leapfrog(carry, _):
         """Generalized leapfrog integration step"""
@@ -159,9 +168,12 @@ def sample(
         ) = carry
 
         # Update momentum implicitly (half step)
-        _, fp_arr_p = jax.lax.scan(
+        fp_out_p = jax.lax.fori_loop(
+            0,
+            f_max,
             fp_p,
             (
+                p,
                 x,
                 p,
                 grad_hamiltonian,
@@ -171,17 +183,17 @@ def sample(
                 jac_metric,
                 jac_det_metric,
             ),
-            None,
-            f_max,
         )
-
-        p = fp_arr_p[-1]
+        p = fp_out_p[0]
         w = cholesky_solve(cholesky_metric, p)
 
         # Update position implicitly (full step)
-        carry, fp_arr_x = jax.lax.scan(
+        fp_out_x = jax.lax.fori_loop(
+            0,
+            f_max,
             fp_x,
             (
+                x,
                 x,
                 p,
                 w,
@@ -192,11 +204,10 @@ def sample(
                 jac_metric,
                 jac_det_metric,
             ),
-            None,
-            f_max,
         )
 
         (
+            x,
             _,
             _,
             _,
@@ -206,8 +217,7 @@ def sample(
             det_metric,
             jac_metric,
             jac_det_metric,
-        ) = carry
-        x = fp_arr_x[-1]
+        ) = fp_out_x
 
         # Final momentum explicit update (half step)
         _, grad_hamiltonian = __hamiltonian(
