@@ -59,7 +59,7 @@ def sample(
     @jax.jit
     def __riemann_metric(
         x: jax.Array,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
         # Compute the Riemannian metric tensor G(x) (using the Hessian)
         metric = hessian_nll(x)
         # Cholesky decomposition of G(x)
@@ -75,7 +75,7 @@ def sample(
             lambda b: cholesky_solve(cholesky_metric, b), in_axes=2
         )(jac_metric)
         jac_det_metric = jnp.einsum("jji", jac_det_metric)
-        return metric, cholesky_metric, det_metric, jac_metric, jac_det_metric
+        return cholesky_metric, det_metric, jac_metric, jac_det_metric
 
     @jax.jit
     def __hamiltonian(
@@ -99,9 +99,7 @@ def sample(
         )
         return hamiltonian, grad_hamiltonian
 
-    metric, cholesky_metric, det_metric, jac_metric, jac_det_metric = __riemann_metric(
-        x_init
-    )
+    cholesky_metric, det_metric, jac_metric, jac_det_metric = __riemann_metric(x_init)
 
     def fp_p(_, val):
         """Fixed point iteration step for momentum update"""
@@ -110,7 +108,6 @@ def sample(
             x,
             p,
             grad_hamiltonian,
-            metric,
             cholesky_metric,
             det_metric,
             jac_metric,
@@ -125,7 +122,6 @@ def sample(
             x,
             p,
             grad_hamiltonian,
-            metric,
             cholesky_metric,
             det_metric,
             jac_metric,
@@ -134,10 +130,10 @@ def sample(
 
     def fp_x(_, val):
         """Fixed point iteration step for position update"""
-        _, x, p, w, w_new, _, _, _, _, _ = val
+        _, x, p, w, w_new, _, _, _, _ = val
         x_new = x + 0.5 * eps * (w + w_new)
-        metric, cholesky_metric, det_metric, jac_metric, jac_det_metric = (
-            __riemann_metric(x_new)
+        cholesky_metric, det_metric, jac_metric, jac_det_metric = __riemann_metric(
+            x_new
         )
         w_new = cholesky_solve(cholesky_metric, p)
         return (
@@ -146,7 +142,6 @@ def sample(
             p,
             w,
             w_new,
-            metric,
             cholesky_metric,
             det_metric,
             jac_metric,
@@ -160,7 +155,6 @@ def sample(
             p,
             _,
             grad_hamiltonian,
-            metric,
             cholesky_metric,
             det_metric,
             jac_metric,
@@ -177,7 +171,6 @@ def sample(
                 x,
                 p,
                 grad_hamiltonian,
-                metric,
                 cholesky_metric,
                 det_metric,
                 jac_metric,
@@ -198,7 +191,6 @@ def sample(
                 p,
                 w,
                 w,
-                metric,
                 cholesky_metric,
                 det_metric,
                 jac_metric,
@@ -212,7 +204,6 @@ def sample(
             _,
             _,
             _,
-            metric,
             cholesky_metric,
             det_metric,
             jac_metric,
@@ -233,7 +224,6 @@ def sample(
             p,
             hamiltonian,
             grad_hamiltonian,
-            metric,
             cholesky_metric,
             det_metric,
             jac_metric,
@@ -245,7 +235,6 @@ def sample(
             key,
             rej,
             x,
-            metric,
             cholesky_metric,
             det_metric,
             jac_metric,
@@ -262,6 +251,8 @@ def sample(
             x, p, cholesky_metric, det_metric, jac_metric, jac_det_metric
         )
 
+        jax.debug.print("{h}", h=hamiltonian)
+
         # Run generalized leapfrog integrator
         leap_carry, leap = jax.lax.scan(
             leapfrog,
@@ -270,7 +261,6 @@ def sample(
                 p,
                 hamiltonian,
                 grad_hamiltonian,
-                metric,
                 cholesky_metric,
                 det_metric,
                 jac_metric,
@@ -285,7 +275,6 @@ def sample(
             _,
             new_hamiltonian,
             _,
-            new_metric,
             new_cholesky_metric,
             new_det_metric,
             new_jac_metric,
@@ -298,7 +287,6 @@ def sample(
 
         new_rej = jax.lax.select(condition, rej, rej + 1)
         new_x = jax.lax.select(condition, x_new, x)
-        new_metric = jax.lax.select(condition, new_metric, metric)
         new_cholesky_metric = jax.lax.select(
             condition, new_cholesky_metric, cholesky_metric
         )
@@ -313,7 +301,6 @@ def sample(
             key,
             new_rej,
             new_x,
-            new_metric,
             new_cholesky_metric,
             new_det_metric,
             new_jac_metric,
@@ -326,7 +313,6 @@ def sample(
             key,
             0,
             x_init,
-            metric,
             cholesky_metric,
             det_metric,
             jac_metric,
@@ -336,7 +322,7 @@ def sample(
         n_iter,
     )
 
-    _, rej, _, _, _, _, _, _ = carry
+    _, rej, _, _, _, _, _ = carry
     rejection_rate = rej / n_iter
 
     if return_path:
