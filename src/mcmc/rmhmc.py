@@ -249,7 +249,7 @@ def sample(
 
         (
             x_new,
-            _,
+            p_new,
             new_cholesky_metric,
             new_jac_metric,
             new_jac_det_metric,
@@ -257,7 +257,7 @@ def sample(
 
         # Accept-reject step
         u = jax.random.uniform(subkey1)
-        new_hamiltonian = __hamiltonian(x_new, p, new_cholesky_metric)
+        new_hamiltonian = __hamiltonian(x_new, p_new, new_cholesky_metric)
         condition = u < jnp.exp(hamiltonian - new_hamiltonian)
 
         new_rej = jax.lax.select(condition, rej, rej + 1)
