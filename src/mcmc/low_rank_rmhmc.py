@@ -60,7 +60,7 @@ def sample(
     grad_nll = jax.grad(neg_log_prob)
 
     @jax.jit
-    def __metric(x: jax.Array, key: jax.Array) -> tuple[jax.Array, jax.Array]:
+    def __metric(x: jax.Array) -> tuple[jax.Array, jax.Array]:
         """Compute the vector for the rank one approximation of the metric"""
 
         # Sample Fisher
@@ -72,6 +72,7 @@ def sample(
             return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
 
         # Initialize a random vector
+        key = jax.random.key(0)
         v = jax.random.normal(key, shape=x.shape)
         v = v / jnp.linalg.norm(v)
 
@@ -117,11 +118,10 @@ def sample(
     def hamiltonian_fn(
         x: jax.Array,
         p: jax.Array,
-        key: jax.Array,
     ) -> tuple[jax.Array, jax.Array]:
         """Compute the Hamiltonian with respect to position x"""
 
-        metric = __metric(x, key)
+        metric = __metric(x)
 
         # H = 1/2 p^T G^{-1}(x) p + 1/2 log|G(x)| + NLL(x)
         return (
@@ -142,18 +142,16 @@ def sample(
 
     def fp_x(carry, _):
         """Fixed point iteration step for position update"""
-        x0, p, w0, w, key = carry
-        key, subkey = jax.random.split(key)
+        x0, p, w0, w = carry
         x_new = x0 + 0.5 * eps * (w0 + w)
-        u = __metric(x_new, subkey)
+        u = __metric(x_new)
         w_new = metric_inv_op(u, p)
 
-        return (x0, p, w0, w_new, key), x_new
+        return (x0, p, w0, w_new), x_new
 
     def leapfrog(carry, _):
         """Generalized leapfrog integration step"""
-        x, p, _, key = carry
-        key, subkey = jax.random.split(key)
+        x, p, _ = carry
 
         # Update momentum implicitly (half step)
         _, fp_arr_p = jax.lax.scan(
@@ -169,7 +167,7 @@ def sample(
         w = metric_inv_op(u, p)
         carry, fp_arr_x = jax.lax.scan(
             fp_x,
-            (x, p, w, w, subkey),
+            (x, p, w, w),
             None,
             f_max,
         )
@@ -180,14 +178,14 @@ def sample(
         p = p - 0.5 * eps * grad_H
         hamiltonian = hamiltonian_fn(x, p)
 
-        return (x, p, hamiltonian, key), x
+        return (x, p, hamiltonian), x
 
     def _loop(carry, _):
         key, rej, x = carry
-        key, subkey0, subkey1, subkey2, subkey3 = jax.random.split(key, 5)
+        key, subkey0, subkey1 = jax.random.split(key, 3)
 
         # Compute metric approximation
-        u = __metric(x, subkey2)
+        u = __metric(x)
 
         # Sample initial momentum from N(0, G(x))
         p = jax.random.normal(subkey0, (dim,))
@@ -199,12 +197,12 @@ def sample(
         # Run generalized leapfrog integrator
         leap_carry, leap = jax.lax.scan(
             leapfrog,
-            (x, p, hamiltonian, subkey3),
+            (x, p, hamiltonian),
             None,
             t_max,
         )
 
-        x_new, _, new_hamiltonian, _ = leap_carry
+        x_new, _, new_hamiltonian = leap_carry
 
         # Accept-reject step
         u = jax.random.uniform(subkey1)
