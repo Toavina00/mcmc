@@ -13,6 +13,8 @@ def sample(
     t_max: int,
     f_max: int,
     tk_reg: float = 1e-8,
+    softabs: bool = False,
+    softabs_alpha: float = 1e6,
     return_path: bool = False,
 ) -> Tuple[float | jax.Array, jax.Array]:
     """
@@ -26,6 +28,8 @@ def sample(
         - eps: leapfrog step size
         - t_max: leapfrog iteration
         - f_max: leapfrog fixed point iteration
+        - softabs: if True, use the SoftAbs metric instead of the Hessian
+        - softabs_alpha: the alpha parameter for the SoftAbs metric
         - tk_reg: Tikhonov regularization coefficient for stability
         - return_path: if True, return the full leapfrog dynamics path instead
                        of just the accepted samples
@@ -45,18 +49,32 @@ def sample(
     # Compute gradient, and Hessian of the negative log-probability
     grad_nll = jax.grad(neg_log_prob)
     hessian_nll = jax.hessian(neg_log_prob)
-    # Jacobain of the Hessian gives the derivatives of the metric tensor
-    jac_hessian_nll = jax.jacfwd(hessian_nll)
+
+    @jax.jit
+    def __metric(x: jax.Array) -> jax.Array:
+        """Compute the metric tensor G(x)"""
+        hessian = hessian_nll(x)
+        if softabs:
+            # SoftAbs metric: G = U SoftAbs(D) U^T, where H = U D U^T is the eigendecomposition of the Hessian
+            eigvals, eigvecs = jnp.linalg.eigh(hessian)
+            softabs_eigvals = jnp.where(
+                jnp.abs(eigvals) < 1e-6,
+                1e-6,
+                eigvals / jnp.tanh(softabs_alpha * eigvals),
+            )
+            metric = (eigvecs * softabs_eigvals) @ eigvecs.T
+        else:
+            # Standard Riemannian metric: G = H + tk_reg * I
+            metric = hessian + tk_reg * jnp.eye(hessian.shape[0])
+        return metric
 
     @jax.jit
     def __cholesky_metric(
         x: jax.Array,
     ) -> jax.Array:
         """Compute the Cholesky decomposition of the metric tensor G(x)"""
-        metric = hessian_nll(x)
-        cholesky_metric = jnp.linalg.cholesky(
-            metric + tk_reg * jnp.eye(metric.shape[0])
-        )
+        metric = __metric(x)
+        cholesky_metric = jnp.linalg.cholesky(metric)
         return cholesky_metric
 
     @jax.jit
@@ -65,7 +83,7 @@ def sample(
         cholesky_metric: jax.Array,
     ) -> tuple[jax.Array, jax.Array]:
         """Compute the Jacobians of the metric tensor G(x) and |G(x)|"""
-        jac_metric = jac_hessian_nll(x)
+        jac_metric = jax.jacfwd(__metric)(x)
         jac_det_metric = jax.scipy.linalg.cho_solve((cholesky_metric, True), jac_metric)
         jac_det_metric = jnp.einsum("jji", jac_det_metric)
         return jac_metric, jac_det_metric

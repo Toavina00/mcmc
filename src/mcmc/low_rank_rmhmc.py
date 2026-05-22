@@ -1,0 +1,221 @@
+from typing import Callable, Literal, Tuple
+
+import jax
+import jax.numpy as jnp
+
+
+def _sample(
+    key: jax.Array,
+    log_prob: Callable[[jax.Array], float],
+    x_init: jax.Array,
+    n_iter: int,
+    eps: float,
+    t_max: int,
+    f_max: int,
+    tk_reg: float = 1e-3,
+    method: Literal["power_iter", "outer_grad"] = "power_iter",
+    num_iters: int = 5,
+    return_path: bool = False,
+) -> Tuple[float | jax.Array, jax.Array]:
+    """
+    Sample from a given probability distribution using Riemannian Manifold Hamiltonian Monte Carlo
+    with rank one approximation of the metric tensor
+
+    :Parameters
+        - key: jax random key
+        - log_prob: log-probability density which we are sampling from
+        - x_init: initial position
+        - n_iter: number of iterations
+        - eps: leapfrog step size
+        - t_max: leapfrog iteration
+        - f_max: leapfrog fixed point iteration
+        - tk_reg: Tikhonov regularisation coefficient
+        - method: either "power_iter" or "outer_grad" for the rank-1 approximation
+        - num_iters: Number of iteration in power iteration for rank-1 approximation
+        - return_path: if True, return the full leapfrog dynamics path instead
+                       of just the accepted samples
+
+    :Returns
+        - rejection_rate: sampling rejection rate
+        - samples: accepted samples (shape: [n_iter, dim]) if return_path=False,
+                   or full leapfrog path (shape: [n_iter * tau, dim]) if return_path=True
+
+    """
+
+    if method not in ["power_iter", "outer_grad"]:
+        raise ValueError("`method` should be 'power_iter' or 'outer_grad'")
+
+    dim = x_init.shape[0]
+
+    @jax.jit
+    def neg_log_prob(x: jax.Array) -> float:
+        """Negative log-probability (potential energy)"""
+        return -log_prob(x)
+
+    # Compute gradient of the negative log-probability
+    grad_nll = jax.grad(neg_log_prob)
+
+    @jax.jit
+    def __metric(x: jax.Array, key: jax.Array) -> tuple[jax.Array, jax.Array]:
+        """Compute the vector for the rank one approximation of the metric"""
+
+        # Sample Fisher
+        if method == "outer_grad":
+            return grad_nll(x)
+
+        # Power iteration
+        def hvp(v):
+            return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
+
+        # Initialize a random vector
+        v = jax.random.normal(key, shape=x.shape)
+        v = v / jnp.linalg.norm(v)
+
+        # Power iteration loop to find the dominant eigenvector
+        def power_iter(_, v):
+            v_next = hvp(v)
+            return v_next / jnp.linalg.norm(v_next)
+
+        v = jax.lax.fori_loop(0, num_iters, power_iter, v)
+        top_eigenvalue = jnp.dot(v, hvp(v))
+
+        return top_eigenvalue * v
+
+    @jax.jit
+    def metric_log_det(metric: jax.Array) -> jax.Array:
+        """Compute the log determinant of the metric tensor"""
+        norm_u = jnp.linalg.norm(metric)
+        return jnp.log(tk_reg) * dim + jnp.log(1 + (norm_u**2) / tk_reg)
+
+    @jax.jit
+    def metric_inv_op(metric: jax.Array, v: jax.Array) -> jax.Array:
+        """Compute the operation `G(x)^{-1} v = (lambda I + u u^t)^{-1} v`"""
+        norm_u = jnp.linalg.norm(metric)
+        return (1 / tk_reg) * v + (1 / (tk_reg + norm_u**2)) * (metric @ v) * metric
+
+    @jax.jit
+    def metric_sqrt_op(metric: jax.Array, v: jax.Array) -> jax.Array:
+        """Compute the operation `G(x)^{1/2} v = (lambda I + u u^t)^{1/2} v`"""
+        norm_u = jnp.linalg.norm(metric)
+        return (
+            jnp.sqrt(tk_reg) * v
+            + (1 / (2 * jnp.sqrt(tk_reg) + norm_u**2)) * (metric @ v) * metric
+        )
+
+    @jax.jit
+    def hamiltonian_fn(
+        x: jax.Array,
+        p: jax.Array,
+        key: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
+        """Compute the Hamiltonian with respect to position x"""
+
+        metric = __metric(x, key)
+
+        # H = 1/2 p^T G^{-1}(x) p + 1/2 log|G(x)| + NLL(x)
+        return (
+            0.5 * p.T @ metric_inv_op(metric, p)
+            + 0.5 * metric_log_det(metric)
+            + neg_log_prob(x)
+        )
+
+    jac_hamiltonian = jax.jacrev(hamiltonian_fn, argnums=0)
+
+    def fp_p(carry, _):
+        """Fixed point iteration step for momentum update"""
+        x, p0, p = carry
+        grad_H = jac_hamiltonian(x, p)
+        p_new = p0 - 0.5 * eps * grad_H
+
+        return (x, p0, p_new), p_new
+
+    def fp_x(carry, _):
+        """Fixed point iteration step for position update"""
+        x0, p, w0, w, key = carry
+        key, subkey = jax.random.split(key)
+        x_new = x0 + 0.5 * eps * (w0 + w)
+        u = __metric(x_new, subkey)
+        w_new = metric_inv_op(u, p)
+
+        return (x0, p, w0, w_new, key), x_new
+
+    def leapfrog(carry, _):
+        """Generalized leapfrog integration step"""
+        x, p, _, key = carry
+        key, subkey = jax.random.split(key)
+
+        # Update momentum implicitly (half step)
+        _, fp_arr_p = jax.lax.scan(
+            fp_p,
+            (x, p, p),
+            None,
+            f_max,
+        )
+        p = fp_arr_p[-1]
+
+        # Update position implicitly (full step)
+        u = __metric(x)
+        w = metric_inv_op(u, p)
+        carry, fp_arr_x = jax.lax.scan(
+            fp_x,
+            (x, p, w, w, subkey),
+            None,
+            f_max,
+        )
+        x = fp_arr_x[-1]
+
+        # Final momentum explicit update (half step)
+        grad_H = jac_hamiltonian(x, p)
+        p = p - 0.5 * eps * grad_H
+        hamiltonian = hamiltonian_fn(x, p)
+
+        return (x, p, hamiltonian, key), x
+
+    def _loop(carry, _):
+        key, rej, x = carry
+        key, subkey0, subkey1, subkey2, subkey3 = jax.random.split(key, 5)
+
+        # Compute metric approximation
+        u = __metric(x, subkey2)
+
+        # Sample initial momentum from N(0, G(x))
+        p = jax.random.normal(subkey0, (dim,))
+        p = metric_sqrt_op(u, p)
+
+        # Compute initial Hamiltonian
+        hamiltonian = hamiltonian_fn(x, p)
+
+        # Run generalized leapfrog integrator
+        leap_carry, leap = jax.lax.scan(
+            leapfrog,
+            (x, p, hamiltonian, subkey3),
+            None,
+            t_max,
+        )
+
+        x_new, _, new_hamiltonian, _ = leap_carry
+
+        # Accept-reject step
+        u = jax.random.uniform(subkey1)
+        condition = u < jnp.exp(hamiltonian - new_hamiltonian)
+
+        new_rej = jax.lax.select(condition, rej, rej + 1)
+        new_x = jax.lax.select(condition, x_new, x)
+
+        output = leap if return_path else new_x
+        return (key, new_rej, new_x), output
+
+    carry, samples = jax.lax.scan(
+        _loop,
+        (key, 0, x_init),
+        None,
+        n_iter,
+    )
+
+    _, rej, _ = carry
+    rejection_rate = rej / n_iter
+
+    if return_path:
+        samples = samples.reshape(-1, x_init.shape[-1])
+
+    return rejection_rate, samples
