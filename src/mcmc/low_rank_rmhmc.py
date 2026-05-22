@@ -13,10 +13,8 @@ def sample(
     t_max: int,
     f_max: int,
     tk_reg: float = 1e-3,
-    method: Literal["power_iter", "outer_grad"] = "power_iter",
+    method: Literal["power_iter", "eigen", "fisher"] = "power_iter",
     n_power_iters: int = 5,
-    softabs: bool = False,
-    softabs_alpha: float = 1e-2,
     return_path: bool = False,
 ) -> Tuple[float | jax.Array, jax.Array]:
     """
@@ -32,10 +30,8 @@ def sample(
         - t_max: leapfrog iteration
         - f_max: leapfrog fixed point iteration
         - tk_reg: Tikhonov regularisation coefficient
-        - method: either "power_iter" or "outer_grad" for the rank-1 approximation
+        - method: either "power_iter", "eigen" or "fisher" for the rank-1 approximation
         - n_power_iters: Number of iteration in power iteration for rank-1 approximation
-        - softabs: if True, use the SoftAbs metric instead of the Hessian
-        - softabs_alpha: the alpha parameter for the SoftAbs metric
         - return_path: if True, return the full leapfrog dynamics path instead
                        of just the accepted samples
 
@@ -46,7 +42,7 @@ def sample(
 
     """
 
-    if method not in ["power_iter", "outer_grad"]:
+    if method not in ["power_iter", "eigen", "fisher"]:
         raise ValueError("`method` should be 'power_iter' or 'outer_grad'")
 
     dim = x_init.shape[0]
@@ -63,8 +59,15 @@ def sample(
     def __metric(x: jax.Array) -> tuple[jax.Array, jax.Array]:
         """Compute the vector for the rank one approximation of the metric"""
 
+        # Hessian eigenvalue decomposition
+        if method == "eigen":
+            hessian = jax.hessian(neg_log_prob)(x)
+            eigenvals, eigenvecs = jnp.linalg.eigh(hessian)
+            top_idx = jnp.argmax(jnp.abs(eigenvals))
+            return jnp.sqrt(jnp.abs(eigenvals[top_idx])) * eigenvecs[:, top_idx]
+
         # Sample Fisher
-        if method == "outer_grad":
+        if method == "fisher":
             return grad_nll(x)
 
         # Power iteration
@@ -84,14 +87,7 @@ def sample(
         v = jax.lax.fori_loop(0, n_power_iters, power_iter, v)
         top_eigenvalue = jnp.dot(v, hvp(v))
 
-        if softabs:
-            top_eigenvalue = jax.lax.select(
-                jnp.abs(top_eigenvalue) < 1e-6,
-                1e-6,
-                top_eigenvalue / jnp.tanh(softabs_alpha * top_eigenvalue),
-            )
-
-        return top_eigenvalue * v
+        return jnp.sqrt(jnp.abs(top_eigenvalue)) * v
 
     @jax.jit
     def metric_log_det(metric: jax.Array) -> jax.Array:
