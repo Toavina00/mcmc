@@ -49,14 +49,6 @@ def sample(
         cov_cholesky = jnp.linalg.cholesky(covariance)
 
     @jax.jit
-    def cholesky_solve(lower_cholesky: jax.Array, x: jax.Array) -> jax.Array:
-        out = jax.scipy.linalg.solve_triangular(lower_cholesky, x, lower=True)
-        out = jax.scipy.linalg.solve_triangular(
-            lower_cholesky, out, lower=True, trans="T"
-        )
-        return out
-
-    @jax.jit
     def neg_log_prob(x: jax.Array) -> float:
         """Negative log-probability (potential energy)"""
         return -log_prob(x)
@@ -64,7 +56,11 @@ def sample(
     @jax.jit
     def kinetic_energy(p: jax.Array) -> jax.Array:
         """Kinetic energy of the Hamiltonian system"""
-        g = p if cov_cholesky is None else cholesky_solve(cov_cholesky, p)
+        g = (
+            p
+            if cov_cholesky is None
+            else jax.scipy.linalg.cho_solve((cov_cholesky, True), p)
+        )
         return (p.T @ g) * 0.5
 
     # Gradient of the negative log-probability
@@ -75,7 +71,11 @@ def sample(
         # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)
         # Full step for position
-        g = p if cov_cholesky is None else cholesky_solve(cov_cholesky, p)
+        g = (
+            p
+            if cov_cholesky is None
+            else jax.scipy.linalg.cho_solve((cov_cholesky, True), p)
+        )
         x = x + eps * g
         # Half step for momentum
         p = p - 0.5 * eps * grad_nll(x)

@@ -49,14 +49,6 @@ def sample(
     jac_hessian_nll = jax.jacfwd(hessian_nll)
 
     @jax.jit
-    def cholesky_solve(lower_cholesky: jax.Array, x: jax.Array) -> jax.Array:
-        out = jax.scipy.linalg.solve_triangular(lower_cholesky, x, lower=True)
-        out = jax.scipy.linalg.solve_triangular(
-            lower_cholesky, out, lower=True, trans="T"
-        )
-        return out
-
-    @jax.jit
     def __cholesky_metric(
         x: jax.Array,
     ) -> jax.Array:
@@ -74,9 +66,7 @@ def sample(
     ) -> tuple[jax.Array, jax.Array]:
         """Compute the Jacobians of the metric tensor G(x) and |G(x)|"""
         jac_metric = jac_hessian_nll(x)
-        jac_det_metric = jax.vmap(
-            lambda b: cholesky_solve(cholesky_metric, b), in_axes=2
-        )(jac_metric)
+        jac_det_metric = jax.scipy.linalg.cho_solve((cholesky_metric, True), jac_metric)
         jac_det_metric = jnp.einsum("jji", jac_det_metric)
         return jac_metric, jac_det_metric
 
@@ -87,7 +77,7 @@ def sample(
         cholesky_metric: jax.Array,
     ) -> jax.Array:
         # Compute kinetic energy K = 1/2 p^T G(x)^{-1} p + 1/2 log|G(x)|
-        w = cholesky_solve(cholesky_metric, p)
+        w = jax.scipy.linalg.cho_solve((cholesky_metric, True), p)
         log_det_metric = 2 * jnp.sum(jnp.log(jnp.diag(cholesky_metric)))
         K = 0.5 * p.T @ w + 0.5 * log_det_metric
         # Total Hamiltonian H = K + U
@@ -103,7 +93,7 @@ def sample(
         jac_det_metric: jax.Array,
     ) -> jax.Array:
         # Partial derivative of the Hamiltonian w.r.t position x
-        w = cholesky_solve(cholesky_metric, p)
+        w = jax.scipy.linalg.cho_solve((cholesky_metric, True), p)
         grad_hamiltonian = (
             grad_nll(x)
             - 0.5 * jnp.einsum("ijk,j,k->i", jac_metric, w, w)
@@ -139,7 +129,7 @@ def sample(
         _, x, p, w, w_new, _ = val
         x_new = x + 0.5 * eps * (w + w_new)
         cholesky_metric = __cholesky_metric(x_new)
-        w_new = cholesky_solve(cholesky_metric, p)
+        w_new = jax.scipy.linalg.cho_solve((cholesky_metric, True), p)
         return (
             x_new,
             x,
@@ -174,7 +164,7 @@ def sample(
             ),
         )
         p = fp_out_p[0]
-        w = cholesky_solve(cholesky_metric, p)
+        w = jax.scipy.linalg.cho_solve((cholesky_metric, True), p)
 
         # Update position implicitly (full step)
         fp_out_x = jax.lax.fori_loop(
