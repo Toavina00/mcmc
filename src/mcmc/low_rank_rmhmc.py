@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 
 
-def _sample(
+def sample(
     key: jax.Array,
     log_prob: Callable[[jax.Array], float],
     x_init: jax.Array,
