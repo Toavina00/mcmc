@@ -75,8 +75,7 @@ def sample(
             return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
 
         # Initialize a random vector
-        key = jax.random.key(0)
-        v = jax.random.normal(key, shape=x.shape)
+        v = jnp.ones(x.shape)
         v = v / jnp.linalg.norm(v)
 
         # Power iteration loop to find the dominant eigenvector
