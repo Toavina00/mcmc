@@ -14,7 +14,7 @@ def sample(
     f_max: int,
     tk_reg: float = 1e-8,
     softabs: bool = False,
-    softabs_alpha: float = 1e6,
+    softabs_alpha: float = 1e-2,
     return_path: bool = False,
 ) -> Tuple[float | jax.Array, jax.Array]:
     """
@@ -64,8 +64,8 @@ def sample(
             )
             metric = (eigvecs * softabs_eigvals) @ eigvecs.T
         else:
-            # Standard Riemannian metric: G = H + tk_reg * I
-            metric = hessian + tk_reg * jnp.eye(hessian.shape[0])
+            # Standard metric: G = H
+            metric = hessian
         return metric
 
     @jax.jit
@@ -74,7 +74,7 @@ def sample(
     ) -> jax.Array:
         """Compute the Cholesky decomposition of the metric tensor G(x)"""
         metric = __metric(x)
-        cholesky_metric = jnp.linalg.cholesky(metric)
+        cholesky_metric = jnp.linalg.cholesky(metric + tk_reg * jnp.eye(metric.shape[0]))
         return cholesky_metric
 
     @jax.jit

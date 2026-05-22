@@ -14,7 +14,9 @@ def _sample(
     f_max: int,
     tk_reg: float = 1e-3,
     method: Literal["power_iter", "outer_grad"] = "power_iter",
-    num_iters: int = 5,
+    n_power_iters: int = 5,
+    softabs: bool = False,
+    softabs_alpha: float = 1e-2,
     return_path: bool = False,
 ) -> Tuple[float | jax.Array, jax.Array]:
     """
@@ -31,7 +33,9 @@ def _sample(
         - f_max: leapfrog fixed point iteration
         - tk_reg: Tikhonov regularisation coefficient
         - method: either "power_iter" or "outer_grad" for the rank-1 approximation
-        - num_iters: Number of iteration in power iteration for rank-1 approximation
+        - n_power_iters: Number of iteration in power iteration for rank-1 approximation
+        - softabs: if True, use the SoftAbs metric instead of the Hessian
+        - softabs_alpha: the alpha parameter for the SoftAbs metric
         - return_path: if True, return the full leapfrog dynamics path instead
                        of just the accepted samples
 
@@ -76,8 +80,15 @@ def _sample(
             v_next = hvp(v)
             return v_next / jnp.linalg.norm(v_next)
 
-        v = jax.lax.fori_loop(0, num_iters, power_iter, v)
+        v = jax.lax.fori_loop(0, n_power_iters, power_iter, v)
         top_eigenvalue = jnp.dot(v, hvp(v))
+
+        if softabs:
+            top_eigenvalue = jax.lax.select(
+                jnp.abs(top_eigenvalue) < 1e-6,
+                1e-6,
+                top_eigenvalue / jnp.tanh(softabs_alpha * top_eigenvalue),
+            )
 
         return top_eigenvalue * v
 
