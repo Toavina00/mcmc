@@ -71,22 +71,24 @@ def sample(
             return grad_nll(x)
 
         # Power iteration
-        def hvp(v):
-            return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
+        else:
 
-        # Initialize a random vector
-        v = jnp.ones(x.shape)
-        v = v / jnp.linalg.norm(v)
+            def hvp(v):
+                return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
 
-        # Power iteration loop to find the dominant eigenvector
-        def power_iter(_, v):
-            v_next = hvp(v)
-            return v_next / jnp.linalg.norm(v_next)
+            # Initialize a random vector
+            v = jnp.ones(x.shape)
+            v = v / jnp.linalg.norm(v)
 
-        v = jax.lax.fori_loop(0, n_power_iters, power_iter, v)
-        top_eigenvalue = jnp.dot(v, hvp(v))
+            # Power iteration loop to find the dominant eigenvector
+            def power_iter(_, v):
+                v_next = hvp(v)
+                return v_next / jnp.linalg.norm(v_next)
 
-        return jnp.sqrt(jnp.abs(top_eigenvalue)) * v
+            v = jax.lax.fori_loop(0, n_power_iters, power_iter, v)
+            top_eigenvalue = jnp.dot(v, hvp(v))
+
+            return jnp.sqrt(jnp.abs(top_eigenvalue)) * v
 
     @jax.jit
     def metric_log_det(metric: jax.Array) -> jax.Array:
