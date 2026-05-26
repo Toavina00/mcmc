@@ -27,6 +27,8 @@ def m_ess(samples: jax.Array) -> jax.Array:
 
     n, d = samples.shape
 
+    jitter = 1e-6 * jnp.eye(d)
+
     # Compute covariance matrix
     covar = jnp.atleast_2d(jnp.cov(samples, rowvar=False))
 
@@ -46,10 +48,10 @@ def m_ess(samples: jax.Array) -> jax.Array:
     sigma_mat = jnp.atleast_2d((batch_size / (num_batches - 1)) * (diff.T @ diff))
 
     # Use slogdet to avoid numerical issues with determinant
-    sign_c, logdet_c = jnp.linalg.slogdet(covar)
-    sign_s, logdet_s = jnp.linalg.slogdet(sigma_mat)
+    _, logdet_c = jnp.linalg.slogdet(covar + jitter)
+    _, logdet_s = jnp.linalg.slogdet(sigma_mat + jitter)
 
-    return n * jnp.exp((logdet_c - logdet_s) / d)
+    return jnp.clip(n * jnp.exp((logdet_c - logdet_s) / d), a_min=1.0)
 
 
 def ess(samples: jax.Array) -> jax.Array:
@@ -78,7 +80,8 @@ def ess(samples: jax.Array) -> jax.Array:
 
     # Compute Linear autocovariance via FFT
     samples_centered = samples - samples.mean(axis=0)
-    samples_fft = jnp.fft.rfft(samples_centered, n=2 * n, axis=0)
+    n_fft = 2 ** int(jnp.ceil(jnp.log2(2 * n - 1)))
+    samples_fft = jnp.fft.rfft(samples_centered, n=n_fft, axis=0)
     power_spec = jnp.abs(samples_fft) ** 2
     autocov = jnp.fft.irfft(power_spec, axis=0)[:n]
 
@@ -99,5 +102,6 @@ def ess(samples: jax.Array) -> jax.Array:
 
     # Compute tau_int
     tau_int = -1.0 + 2.0 * gamma_monotone.sum(axis=0)
+    tau_int = jnp.maximum(tau_int, 1.0)  # Ensure tau_int is at least 1
 
-    return n / tau_int
+    return jnp.clip(n / tau_int, a_min=1.0)
