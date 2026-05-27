@@ -27,8 +27,6 @@ def m_ess(samples: jax.Array) -> jax.Array:
 
     n, d = samples.shape
 
-    jitter = 1e-6 * jnp.eye(d)
-
     # Compute covariance matrix
     covar = jnp.atleast_2d(jnp.cov(samples, rowvar=False))
 
@@ -48,8 +46,8 @@ def m_ess(samples: jax.Array) -> jax.Array:
     sigma_mat = jnp.atleast_2d((batch_size / (num_batches - 1)) * (diff.T @ diff))
 
     # Use slogdet to avoid numerical issues with determinant
-    _, logdet_c = jnp.linalg.slogdet(covar + jitter)
-    _, logdet_s = jnp.linalg.slogdet(sigma_mat + jitter)
+    _, logdet_c = jnp.linalg.slogdet(covar)
+    _, logdet_s = jnp.linalg.slogdet(sigma_mat)
 
     return jnp.clip(n * jnp.exp((logdet_c - logdet_s) / d), min=1.0)
 
