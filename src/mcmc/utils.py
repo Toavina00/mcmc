@@ -29,6 +29,10 @@ def m_ess(samples: jax.Array) -> jax.Array:
 
     # Compute covariance matrix
     covar = jnp.atleast_2d(jnp.cov(samples, rowvar=False))
+    _, logdet_c = jnp.linalg.slogdet(covar)
+
+    if logdet_c == -jnp.inf:
+        raise ValueError("Sample covariance matrix is singular, mESS is undefined.")
 
     # Reshape to (num_batches, batch_size, d)
     batch_size = jnp.floor(jnp.sqrt(n)).astype(int)
@@ -44,10 +48,10 @@ def m_ess(samples: jax.Array) -> jax.Array:
     # Calculate Sigma: The variance of the batch means scaled by batch size
     diff = batch_means - overall_mean
     sigma_mat = jnp.atleast_2d((batch_size / (num_batches - 1)) * (diff.T @ diff))
-
-    # Use slogdet to avoid numerical issues with determinant
-    _, logdet_c = jnp.linalg.slogdet(covar)
     _, logdet_s = jnp.linalg.slogdet(sigma_mat)
+
+    if logdet_s == -jnp.inf:
+        raise ValueError("Batch covariance matrix is singular, mESS is undefined.")
 
     return jnp.clip(n * jnp.exp((logdet_c - logdet_s) / d), min=1.0)
 
