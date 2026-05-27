@@ -51,7 +51,7 @@ def m_ess(samples: jax.Array) -> jax.Array:
     _, logdet_c = jnp.linalg.slogdet(covar + jitter)
     _, logdet_s = jnp.linalg.slogdet(sigma_mat + jitter)
 
-    return jnp.clip(n * jnp.exp((logdet_c - logdet_s) / d), a_min=1.0)
+    return jnp.clip(n * jnp.exp((logdet_c - logdet_s) / d), min=1.0)
 
 
 def ess(samples: jax.Array) -> jax.Array:
@@ -104,4 +104,4 @@ def ess(samples: jax.Array) -> jax.Array:
     tau_int = -1.0 + 2.0 * gamma_monotone.sum(axis=0)
     tau_int = jnp.maximum(tau_int, 1.0)  # Ensure tau_int is at least 1
 
-    return jnp.clip(n / tau_int, a_min=1.0)
+    return jnp.clip(n / tau_int, min=1.0)
