@@ -262,12 +262,6 @@ def multivariate_rhat(chains: jax.Array) -> jax.Array:
     Compute the multivariate rank-normalized potential scale reduction factor.
     Extension of R̂ to multivariate case using inverse of the covariance matrix.
 
-    Reference:
-        Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021).
-        Rank-normalization, folding, and localization
-        An improved R-hat for assessing convergence of MCMC*.
-        Bayesian Analysis, 16(2), 667-718.
-
     :Parameters
         - chains: array of shape (n_chains, n_samples_per_chain, d) for multivariate samples
 
