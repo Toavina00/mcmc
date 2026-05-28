@@ -1,7 +1,7 @@
+from typing import Callable, Tuple
+
 import jax
 import jax.numpy as jnp
-
-from typing import Callable, Tuple
 
 
 def sample(
@@ -10,7 +10,7 @@ def sample(
     x_init: jax.Array,
     n_iter: int,
     sigma: float,
-) -> Tuple[float, jax.Array]:
+) -> Tuple[float | jax.Array, jax.Array]:
     """
     Sample from a given probability distribution using Metropolis-Hastins with a gaussian proposal density
 

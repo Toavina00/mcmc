@@ -13,8 +13,7 @@ def sample(
     t_max: int,
     f_max: int,
     tk_reg: float = 1e-3,
-    method: Literal["power_iter", "eigen", "fisher"] = "power_iter",
-    n_power_iters: int = 5,
+    n_power_iters: int = 10,
     return_path: bool = False,
 ) -> Tuple[float | jax.Array, jax.Array]:
     """
@@ -30,7 +29,6 @@ def sample(
         - t_max: leapfrog iteration
         - f_max: leapfrog fixed point iteration
         - tk_reg: Tikhonov regularisation coefficient
-        - method: either "power_iter", "eigen" or "fisher" for the rank-1 approximation
         - n_power_iters: Number of iteration in power iteration for rank-1 approximation
         - return_path: if True, return the full leapfrog dynamics path instead
                        of just the accepted samples
@@ -42,9 +40,6 @@ def sample(
 
     """
 
-    if method not in ["power_iter", "eigen", "fisher"]:
-        raise ValueError("`method` should be 'power_iter' or 'outer_grad'")
-
     dim = x_init.shape[0]
 
     @jax.jit
@@ -52,49 +47,32 @@ def sample(
         """Negative log-probability (potential energy)"""
         return -log_prob(x)
 
-    # Compute gradient of the negative log-probability
-    grad_nll = jax.grad(neg_log_prob)
-
     @jax.jit
     def __metric(x: jax.Array) -> tuple[jax.Array, jax.Array]:
         """Compute the vector for the rank one approximation of the metric"""
 
-        # Hessian eigenvalue decomposition
-        if method == "eigen":
-            hessian = jax.hessian(neg_log_prob)(x)
-            eigenvals, eigenvecs = jnp.linalg.eigh(hessian)
-            top_idx = jnp.argmax(jnp.abs(eigenvals))
-            return jnp.sqrt(jnp.abs(eigenvals[top_idx])) * eigenvecs[:, top_idx]
+        def hvp(v):
+            return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
 
-        # Sample Fisher
-        if method == "fisher":
-            return grad_nll(x)
+        # Initialize a random vector
+        v = jnp.ones(x.shape)
+        v = v / jnp.linalg.norm(v)
 
-        # Power iteration
-        else:
+        # Power iteration loop to find the dominant eigenvector
+        def power_iter(_, v):
+            v_next = hvp(v)
+            return v_next / jnp.linalg.norm(v_next)
 
-            def hvp(v):
-                return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
+        v = jax.lax.fori_loop(0, n_power_iters, power_iter, v)
+        top_eigenvalue = jnp.dot(v, hvp(v))
 
-            # Initialize a random vector
-            v = jnp.ones(x.shape)
-            v = v / jnp.linalg.norm(v)
-
-            # Power iteration loop to find the dominant eigenvector
-            def power_iter(_, v):
-                v_next = hvp(v)
-                return v_next / jnp.linalg.norm(v_next)
-
-            v = jax.lax.fori_loop(0, n_power_iters, power_iter, v)
-            top_eigenvalue = jnp.dot(v, hvp(v))
-
-            return jnp.sqrt(jnp.abs(top_eigenvalue)) * v
+        return jnp.sqrt(jnp.abs(top_eigenvalue)) * v
 
     @jax.jit
     def metric_log_det(metric: jax.Array) -> jax.Array:
         """Compute the log determinant of the metric tensor"""
         norm_u = jnp.linalg.norm(metric)
-        return jnp.log(tk_reg) * dim + jnp.log(1 + (norm_u**2) / tk_reg)
+        return jnp.log(tk_reg) * dim + jnp.log1p((norm_u**2) / tk_reg)
 
     @jax.jit
     def metric_inv_op(metric: jax.Array, v: jax.Array) -> jax.Array:
@@ -117,7 +95,6 @@ def sample(
         p: jax.Array,
     ) -> tuple[jax.Array, jax.Array]:
         """Compute the Hamiltonian with respect to position x"""
-
         metric = __metric(x)
 
         # H = 1/2 p^T G^{-1}(x) p + 1/2 log|G(x)| + NLL(x)
@@ -141,8 +118,8 @@ def sample(
         """Fixed point iteration step for position update"""
         x0, p, w0, w = carry
         x_new = x0 + 0.5 * eps * (w0 + w)
-        u = __metric(x_new)
-        w_new = metric_inv_op(u, p)
+        metric = __metric(x_new)
+        w_new = metric_inv_op(metric, p)
 
         return (x0, p, w0, w_new), x_new
 
@@ -160,8 +137,8 @@ def sample(
         p = fp_arr_p[-1]
 
         # Update position implicitly (full step)
-        u = __metric(x)
-        w = metric_inv_op(u, p)
+        metric = __metric(x)
+        w = metric_inv_op(metric, p)
         carry, fp_arr_x = jax.lax.scan(
             fp_x,
             (x, p, w, w),
@@ -182,11 +159,11 @@ def sample(
         key, subkey0, subkey1 = jax.random.split(key, 3)
 
         # Compute metric approximation
-        u = __metric(x)
+        metric = __metric(x)
 
         # Sample initial momentum from N(0, G(x))
         p = jax.random.normal(subkey0, (dim,))
-        p = metric_sqrt_op(u, p)
+        p = metric_sqrt_op(metric, p)
 
         # Compute initial Hamiltonian
         hamiltonian = hamiltonian_fn(x, p)
