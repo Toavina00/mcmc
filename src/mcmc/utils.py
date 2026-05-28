@@ -31,7 +31,7 @@ def m_ess(samples: jax.Array) -> jax.Array:
     covar = jnp.atleast_2d(jnp.cov(samples, rowvar=False))
     _, logdet_c = jnp.linalg.slogdet(covar)
 
-    if logdet_c == -jnp.inf:
+    if jnp.isneginf(logdet_c):
         raise ValueError("Sample covariance matrix is singular, mESS is undefined.")
 
     # Reshape to (num_batches, batch_size, d)
@@ -50,7 +50,7 @@ def m_ess(samples: jax.Array) -> jax.Array:
     sigma_mat = jnp.atleast_2d((batch_size / (num_batches - 1)) * (diff.T @ diff))
     _, logdet_s = jnp.linalg.slogdet(sigma_mat)
 
-    if logdet_s == -jnp.inf:
+    if jnp.isneginf(logdet_s):
         raise ValueError("Batch covariance matrix is singular, mESS is undefined.")
 
     return jnp.clip(n * jnp.exp((logdet_c - logdet_s) / d), min=1.0)
@@ -116,7 +116,8 @@ def bulk_ess(samples: jax.Array) -> jax.Array:
 
     Reference:
         Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021).
-        Rank-normalization, folding, and localization—An improved Rb for assessing convergence of MCMC*.
+        Rank-normalization, folding, and localization
+        An improved R-hat for assessing convergence of MCMC*.
         Bayesian Analysis, 16(2), 667-718.
 
     :Parameters
@@ -152,7 +153,8 @@ def tail_ess(samples: jax.Array, quantiles: tuple = (0.05, 0.95)) -> jax.Array:
 
     Reference:
         Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021).
-        Rank-normalization, folding, and localization—An improved Rb for assessing convergence of MCMC*.
+        Rank-normalization, folding, and localization
+        An improved R-hat for assessing convergence of MCMC*.
         Bayesian Analysis, 16(2), 667-718.
 
     :Parameters
@@ -192,7 +194,8 @@ def rhat(chains: jax.Array) -> jax.Array:
 
     Reference:
         Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021).
-        Rank-normalization, folding, and localization—An improved Rb for assessing convergence of MCMC*.
+        Rank-normalization, folding, and localization
+        An improved R-hat for assessing convergence of MCMC*.
         Bayesian Analysis, 16(2), 667-718.
 
     :Parameters
@@ -209,6 +212,10 @@ def rhat(chains: jax.Array) -> jax.Array:
             "chains should be (n_chains, n_samples_per_chain) or (n_chains, n_samples_per_chain, d)"
         )
 
+    # Split each chain in half
+    _, n_samples, _ = chains.shape
+    n_half = n_samples // 2
+    chains = jnp.concatenate([chains[:, :n_half, :], chains[:, -n_half:, :]], axis=0)
     n_chains, n_samples, d = chains.shape
 
     if n_chains < 2:
@@ -245,7 +252,7 @@ def rhat(chains: jax.Array) -> jax.Array:
     var_hat = ((n_samples - 1) / n_samples) * w + b / n_samples
 
     # Potential scale reduction factor
-    rhat_val = jnp.sqrt(var_hat / (w + 1e-10))
+    rhat_val = jnp.where(w > 0, jnp.sqrt(var_hat / w), 1.0)
 
     return rhat_val
 
@@ -257,7 +264,8 @@ def multivariate_rhat(chains: jax.Array) -> jax.Array:
 
     Reference:
         Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021).
-        Rank-normalization, folding, and localization—An improved Rb for assessing convergence of MCMC*.
+        Rank-normalization, folding, and localization
+        An improved R-hat for assessing convergence of MCMC*.
         Bayesian Analysis, 16(2), 667-718.
 
     :Parameters
@@ -269,6 +277,10 @@ def multivariate_rhat(chains: jax.Array) -> jax.Array:
     if chains.ndim != 3:
         raise ValueError("chains should be (n_chains, n_samples_per_chain, d)")
 
+    # Split each chain in half
+    _, n_samples, _ = chains.shape
+    n_half = n_samples // 2
+    chains = jnp.concatenate([chains[:, :n_half, :], chains[:, -n_half:, :]], axis=0)
     n_chains, n_samples, d = chains.shape
 
     if n_chains < 2:
@@ -308,10 +320,9 @@ def multivariate_rhat(chains: jax.Array) -> jax.Array:
 
     # Inverse covariance with regularization
     W_reg = W + 1e-8 * jnp.trace(W) / d * jnp.eye(d)
-    Sigma_reg = Sigma_hat + 1e-8 * jnp.trace(Sigma_hat) / d * jnp.eye(d)
-
     inv_W = jnp.linalg.inv(W_reg)
-    mrhat_val = jnp.sqrt(jnp.trace(inv_W @ Sigma_reg) / d)
+
+    mrhat_val = jnp.sqrt(jnp.trace(inv_W @ Sigma_hat) / d)
     # Clip to avoid NaN when variance is near-zero
     mrhat_val = jnp.where(jnp.isfinite(mrhat_val), mrhat_val, 1.0)
 
