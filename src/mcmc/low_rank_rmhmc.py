@@ -1,3 +1,4 @@
+from operator import ne
 from typing import Callable, Tuple
 
 import jax
@@ -104,12 +105,12 @@ def sample(
             + neg_log_prob(x)
         )
 
-    jac_hamiltonian = jax.jacrev(hamiltonian_fn, argnums=0)
+    grad_hamiltonian = jax.grad(hamiltonian_fn, argnums=0)
 
     def fp_p(carry, _):
         """Fixed point iteration step for momentum update"""
         x, p0, p = carry
-        grad_H = jac_hamiltonian(x, p)
+        grad_H = grad_hamiltonian(x, p)
         p_new = p0 - 0.5 * eps * grad_H
 
         return (x, p0, p_new), p_new
@@ -125,7 +126,7 @@ def sample(
 
     def leapfrog(carry, _):
         """Generalized leapfrog integration step"""
-        x, p, _ = carry
+        x, p = carry
 
         # Update momentum implicitly (half step)
         _, fp_arr_p = jax.lax.scan(
@@ -148,11 +149,10 @@ def sample(
         x = fp_arr_x[-1]
 
         # Final momentum explicit update (half step)
-        grad_H = jac_hamiltonian(x, p)
+        grad_H = grad_hamiltonian(x, p)
         p = p - 0.5 * eps * grad_H
-        hamiltonian = hamiltonian_fn(x, p)
 
-        return (x, p, hamiltonian), x
+        return (x, p), x
 
     def _loop(carry, _):
         key, rej, x = carry
@@ -171,15 +171,16 @@ def sample(
         # Run generalized leapfrog integrator
         leap_carry, leap = jax.lax.scan(
             leapfrog,
-            (x, p, hamiltonian),
+            (x, p),
             None,
             t_max,
         )
 
-        x_new, _, new_hamiltonian = leap_carry
+        x_new, p_new = leap_carry
 
         # Accept-reject step
         u = jax.random.uniform(subkey1)
+        new_hamiltonian = hamiltonian_fn(x_new, p_new)
         condition = u < jnp.exp(hamiltonian - new_hamiltonian)
 
         new_rej = jax.lax.select(condition, rej, rej + 1)

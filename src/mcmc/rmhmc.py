@@ -100,20 +100,13 @@ def sample(
         hamiltonian = K + neg_log_prob(x)
         return hamiltonian
 
-    @jax.jit
-    def __grad_hamiltonian(
-        x: jax.Array,
-        p: jax.Array,
-    ) -> jax.Array:
-        # Partial derivative of the Hamiltonian w.r.t position x
-        grad_hamiltonian = jax.grad(__hamiltonian, argnums=0)(x, p)
-        return grad_hamiltonian
+    grad_hamiltonian = jax.grad(__hamiltonian, argnums=0)
 
     def fp_p(_, val):
         """Fixed point iteration step for momentum update"""
         p_old, x, p = val
-        grad_hamiltonian = __grad_hamiltonian(x, p_old)
-        p_new = p - 0.5 * eps * grad_hamiltonian
+        grad_H = grad_hamiltonian(x, p_old)
+        p_new = p - 0.5 * eps * grad_H
         return (p_new, x, p)
 
     def fp_x(_, val):
@@ -147,8 +140,8 @@ def sample(
         x = fp_out_x[0]
 
         # Final momentum explicit update (half step)
-        grad_hamiltonian = __grad_hamiltonian(x, p)
-        p = p - 0.5 * eps * grad_hamiltonian
+        grad_H = grad_hamiltonian(x, p)
+        p = p - 0.5 * eps * grad_H
 
         return (x, p), x
 
