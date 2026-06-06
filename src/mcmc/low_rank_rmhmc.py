@@ -12,7 +12,7 @@ def sample(
     eps: float,
     t_max: int,
     f_max: int,
-    mode: Literal["svd", "power_iter"] = "power_iter",
+    mode: Literal["svd", "power_iter"] = "svd",
     tk_reg: float = 1e-3,
     n_power_iters: int = 10,
     return_path: bool = False,
