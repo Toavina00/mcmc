@@ -62,7 +62,7 @@ def sample(
             top_eigenvector = u[:, 0]
             top_singular_value = s[0]
 
-            return top_singular_value * top_eigenvector
+            return jnp.sqrt(top_singular_value) * top_eigenvector
 
         def hvp(v):
             return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
