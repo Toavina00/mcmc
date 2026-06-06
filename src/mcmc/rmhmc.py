@@ -47,7 +47,6 @@ def sample(
         return -log_prob(x)
 
     # Compute gradient, and Hessian of the negative log-probability
-    grad_nll = jax.grad(neg_log_prob)
     hessian_nll = jax.hessian(neg_log_prob)
 
     @jax.jit
