@@ -1,5 +1,4 @@
-from operator import ne
-from typing import Callable, Tuple
+from typing import Callable, Literal, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -13,6 +12,7 @@ def sample(
     eps: float,
     t_max: int,
     f_max: int,
+    mode: Literal["svd", "power_iter"] = "power_iter",
     tk_reg: float = 1e-3,
     n_power_iters: int = 10,
     return_path: bool = False,
@@ -41,6 +41,9 @@ def sample(
 
     """
 
+    if mode not in ["svd", "power_iter"]:
+        raise ValueError(f"Invalid mode: {mode}. Must be 'svd' or 'power_iter'.")
+
     dim = x_init.shape[0]
 
     @jax.jit
@@ -49,8 +52,17 @@ def sample(
         return -log_prob(x)
 
     @jax.jit
-    def __metric(x: jax.Array) -> tuple[jax.Array, jax.Array]:
+    def __metric(x: jax.Array) -> jax.Array:
         """Compute the vector for the rank one approximation of the metric"""
+
+        if mode == "svd":
+            # Compute the Hessian and its dominant eigenvector using SVD
+            hessian = jax.hessian(neg_log_prob)(x)
+            u, s, _ = jnp.linalg.svd(hessian, hermitian=True)
+            top_eigenvector = u[:, 0]
+            top_singular_value = s[0]
+
+            return top_singular_value * top_eigenvector
 
         def hvp(v):
             return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
