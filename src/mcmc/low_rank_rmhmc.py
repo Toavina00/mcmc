@@ -91,7 +91,7 @@ def sample(
     def metric_inv_op(metric: jax.Array, v: jax.Array) -> jax.Array:
         """Compute the operation `G(x)^{-1} v = (lambda I + u u^t)^{-1} v`"""
         norm_u = jnp.linalg.norm(metric)
-        return (1 / tk_reg) * (v + (1 / (tk_reg + norm_u**2)) * (metric @ v) * metric)
+        return (1 / tk_reg) * (v - (1 / (tk_reg + norm_u**2)) * (metric @ v) * metric)
 
     @jax.jit
     def metric_sqrt_op(metric: jax.Array, v: jax.Array) -> jax.Array:
