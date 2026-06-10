@@ -91,15 +91,22 @@ def sample(
     def metric_inv_op(metric: jax.Array, v: jax.Array) -> jax.Array:
         """Compute the operation `G(x)^{-1} v = (lambda I + u u^t)^{-1} v`"""
         norm_u = jnp.linalg.norm(metric)
-        return (1 / tk_reg) * (v - (1 / (tk_reg + norm_u**2)) * (metric @ v) * metric)
+        return (1 / tk_reg) * (
+            v - (1 / (tk_reg + norm_u**2)) * jnp.dot(metric, v) * metric
+        )
 
     @jax.jit
     def metric_sqrt_op(metric: jax.Array, v: jax.Array) -> jax.Array:
         """Compute the operation `G(x)^{1/2} v = (lambda I + u u^t)^{1/2} v`"""
         norm_u = jnp.linalg.norm(metric)
+        sqrt_reg = jnp.sqrt(tk_reg)
+        norm_u_sq = norm_u**2
+
         return (
-            jnp.sqrt(tk_reg) * v
-            + (1 / (2 * jnp.sqrt(tk_reg) + norm_u**2)) * (metric @ v) * metric
+            sqrt_reg * v
+            + ((jnp.sqrt(tk_reg + norm_u_sq) - sqrt_reg) / (norm_u**2 + 1e-8))
+            * jnp.dot(metric, v)
+            * metric
         )
 
     @jax.jit
