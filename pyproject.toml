@@ -22,3 +22,9 @@ dev = [
 
 [project.urls]
 "Repository" = "https://github.com/Toavina00/mcmc"
+
+[tool.hatch.build.targets.wheel]
+exclude = ["thesis"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["thesis"]
