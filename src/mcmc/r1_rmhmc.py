@@ -12,7 +12,7 @@ def sample(
     eps: float,
     t_max: int,
     f_max: int,
-    mode: Literal["svd", "power_iter"] = "svd",
+    mode: Literal["full", "hvp"] = "full",
     tk_reg: float = 1e-3,
     n_power_iters: int = 10,
     return_path: bool = False,
@@ -29,6 +29,8 @@ def sample(
         - eps: leapfrog step size
         - t_max: leapfrog iteration
         - f_max: leapfrog fixed point iteration
+        - mode: either `full` or `hvp` whether to compute the rank-1 approximation
+                using the full hessian or use Pearlmutter hessian-vector-product
         - tk_reg: Tikhonov regularisation coefficient
         - n_power_iters: Number of iteration in power iteration for rank-1 approximation
         - return_path: if True, return the full leapfrog dynamics path instead
@@ -41,8 +43,8 @@ def sample(
 
     """
 
-    if mode not in ["svd", "power_iter"]:
-        raise ValueError(f"Invalid mode: {mode}. Must be 'svd' or 'power_iter'.")
+    if mode not in ["full", "hvp"]:
+        raise ValueError(f"Invalid mode: {mode}. Must be 'full' or 'hvp'.")
 
     dim = x_init.shape[0]
 
@@ -55,17 +57,12 @@ def sample(
     def __metric(x: jax.Array) -> jax.Array:
         """Compute the vector for the rank one approximation of the metric"""
 
-        if mode == "svd":
-            # Compute the Hessian and its dominant eigenvector using SVD
-            hessian = jax.hessian(neg_log_prob)(x)
-            u, s, _ = jnp.linalg.svd(hessian, hermitian=True)
-            top_eigenvector = u[:, 0]
-            top_singular_value = s[0]
-
-            return jnp.sqrt(top_singular_value) * top_eigenvector
-
-        def hvp(v):
-            return jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1]
+        if mode == "full":
+            hess = jax.hessian(neg_log_prob)(x)
+            hvp = jax.jit(lambda v: hess @ v)
+        else:
+            hvp = jax.jit(lambda v: jax.jvp(jax.grad(neg_log_prob), (x,), (v,))[1])
+        
 
         # Initialize a random vector
         v = jnp.ones(x.shape)
